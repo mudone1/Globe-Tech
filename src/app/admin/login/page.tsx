@@ -38,8 +38,20 @@ export default function LoginPage() {
       // on their personal dashboard.
       const adminDoc = await getDoc(doc(getFirebaseDb(), "admins", cred.user.uid));
       router.push(adminDoc.exists() ? "/admin/staff" : "/dashboard");
-    } catch {
-      setError("Couldn't sign in. Check your details and try again.");
+    } catch (err) {
+      console.error("Login failed:", err);
+      const code = (err as { code?: string })?.code;
+      if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
+        setError("Incorrect password. Try again or use Forgot password.");
+      } else if (code === "auth/user-not-found") {
+        setError("No account found for that email/Staff ID.");
+      } else if (code === "auth/too-many-requests") {
+        setError("Too many attempts. Wait a bit and try again, or reset your password.");
+      } else if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
+        setError("The app isn't configured correctly (invalid Firebase API key). Contact the admin.");
+      } else {
+        setError(`Couldn't sign in (${code ?? "unknown error"}). Check your details and try again.`);
+      }
     } finally {
       setLoading(false);
     }
@@ -55,7 +67,8 @@ export default function LoginPage() {
     try {
       await sendPasswordResetEmail(getFirebaseAuth(), identifier.trim());
       setNotice("Check your email for a link to reset your password.");
-    } catch {
+    } catch (err) {
+      console.error("Password reset failed:", err);
       setError("Couldn't send a reset email. Check the address and try again.");
     }
   }
