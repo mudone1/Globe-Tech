@@ -1,0 +1,63 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admin allowlist: create one doc per admin at admins/{uid} (any content, e.g. {role: "admin"}).
+    // Do this manually in the Firebase console after creating each staff/admin's Auth account.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // staff — synced one-way from the onboarding sheet by a Cloud Function
+    // (which uses the Admin SDK and bypasses these rules entirely).
+    // Only admins may read it from the client; nobody writes it from the client.
+    match /staff/{staffId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // linkTokens — maps opaque tokens to staffIds. The public /apply/[token]
+    // route resolves tokens via the Admin SDK on the server (bypasses these
+    // rules), so this only needs to serve the admin staff page's
+    // copy-link column. Never writable from the client — tokens are only
+    // ever created by the Admin SDK (the onboarding sync / server actions).
+    match /linkTokens/{token} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // applications — written only via the server action (Admin SDK).
+    // Admins can read everything; a staff member can read only their own
+    // referrals (matched by a custom claim `staffId` set when their Auth
+    // account is created, or by an admins-only allowlist if you'd rather
+    // keep the dashboard admin-only for now).
+    match /applications/{applicationId} {
+      allow read: if isAdmin() ||
+        (isSignedIn() && resource.data.referredBy == request.auth.token.staffId);
+      // The "Mark Phase 2 complete" toggle is the one client-side write we allow,
+      // and only admins may perform it, and only to flip the status field.
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"]);
+      allow create: if false; // applications are created server-side only (see actions.ts)
+      allow delete: if false;
+    }
+
+    // emailLogs — written only by the Phase 3 Cloud Function (Admin SDK).
+    match /emailLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // admins allowlist — managed by hand in the console, never via the app.
+    match /admins/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+  }
+}
