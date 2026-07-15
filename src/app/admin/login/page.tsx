@@ -35,9 +35,17 @@ export default function LoginPage() {
       const cred = await signInWithEmailAndPassword(auth, resolved.email, password);
 
       // Admins land on the full staff/leaderboard views; everyone else lands
-      // on their personal dashboard.
-      const adminDoc = await getDoc(doc(getFirebaseDb(), "admins", cred.user.uid));
-      router.push(adminDoc.exists() ? "/admin/staff" : "/dashboard");
+      // on their personal dashboard. This check is best-effort — if it
+      // fails for any reason, the login itself already succeeded, so we
+      // still route somewhere reasonable rather than reporting a fake
+      // "login failed" for what's actually a Firestore read problem.
+      try {
+        const adminDoc = await getDoc(doc(getFirebaseDb(), "admins", cred.user.uid));
+        router.push(adminDoc.exists() ? "/admin/staff" : "/dashboard");
+      } catch (adminCheckErr) {
+        console.error("Admin check failed (login itself succeeded):", adminCheckErr);
+        router.push("/admin/staff");
+      }
     } catch (err) {
       console.error("Login failed:", err);
       const code = (err as { code?: string })?.code;

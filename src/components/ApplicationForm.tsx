@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
+import { User, Building2, CheckCircle2 } from "lucide-react";
 import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
 import CopyButton from "@/components/CopyButton";
+import Stepper from "@/components/Stepper";
 
 const BUSINESS_TYPES = [
   "Retail / Trading",
@@ -13,6 +15,12 @@ const BUSINESS_TYPES = [
   "Fashion / Textiles",
   "Logistics / Transport",
   "Other",
+];
+
+const STEPS = [
+  { label: "Your Details", icon: User },
+  { label: "Your Business", icon: Building2 },
+  { label: "Review & Submit", icon: CheckCircle2 },
 ];
 
 interface Props {
@@ -41,6 +49,7 @@ const initialState: FormState = {
 };
 
 export default function ApplicationForm({ token }: Props) {
+  const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(initialState);
   const [errors, setErrors] = useState<string | null>(null);
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
@@ -63,10 +72,14 @@ export default function ApplicationForm({ token }: Props) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
-  function validateClientSide(): string | null {
+  function validateStep1(): string | null {
     if (!form.applicantName.trim()) return "Enter your full name.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Enter a valid email address.";
     if (!/^[0-9+()\-\s]{7,}$/.test(form.phone)) return "Enter a valid phone number.";
+    return null;
+  }
+
+  function validateStep2(): string | null {
     if (!form.businessName.trim()) return "Enter your business name.";
     if (!form.grantAmountRequested || Number(form.grantAmountRequested) <= 0) {
       return "Enter the grant amount you're requesting.";
@@ -74,13 +87,23 @@ export default function ApplicationForm({ token }: Props) {
     return null;
   }
 
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const clientError = validateClientSide();
-    if (clientError) {
-      setErrors(clientError);
+  function goNext() {
+    const error = step === 1 ? validateStep1() : validateStep2();
+    if (error) {
+      setErrors(error);
       return;
     }
+    setErrors(null);
+    setStep((s) => s + 1);
+  }
+
+  function goBack() {
+    setErrors(null);
+    setStep((s) => s - 1);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
     setErrors(null);
 
     startTransition(async () => {
@@ -136,91 +159,133 @@ export default function ApplicationForm({ token }: Props) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5 rounded-card border border-line bg-white p-8 shadow-sm">
-      <Field label="Full name" required>
-        <input
-          className="input"
-          value={form.applicantName}
-          onChange={(e) => update("applicantName", e.target.value)}
-          autoComplete="name"
-        />
-      </Field>
-
-      <Field label="Email" required>
-        <input
-          className="input"
-          type="email"
-          value={form.email}
-          onChange={(e) => update("email", e.target.value)}
-          autoComplete="email"
-        />
-      </Field>
-
-      <Field label="Phone number" required>
-        <input
-          className="input"
-          type="tel"
-          value={form.phone}
-          onChange={(e) => update("phone", e.target.value)}
-          autoComplete="tel"
-        />
-      </Field>
-
-      <Field label="Business name" required>
-        <input
-          className="input"
-          value={form.businessName}
-          onChange={(e) => update("businessName", e.target.value)}
-        />
-      </Field>
-
-      <Field label="Business type" required>
-        <select
-          className="input"
-          value={form.businessType}
-          onChange={(e) => update("businessType", e.target.value)}
-        >
-          {BUSINESS_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-      </Field>
-
-      <Field label="Grant amount requested (₦)" required>
-        <input
-          className="input"
-          type="number"
-          min={0}
-          value={form.grantAmountRequested}
-          onChange={(e) => update("grantAmountRequested", e.target.value)}
-        />
-      </Field>
-
-      {/* Honeypot — visually hidden, never in the tab order, labeled to tempt bots that fill every field */}
-      <div aria-hidden="true" className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden">
-        <label htmlFor="website">Website</label>
-        <input
-          id="website"
-          name="website"
-          tabIndex={-1}
-          autoComplete="off"
-          value={form.website}
-          onChange={(e) => update("website", e.target.value)}
-        />
+    <div className="rounded-card border border-line bg-white p-8 shadow-sm">
+      <div className="mb-8">
+        <Stepper steps={STEPS} current={step} />
       </div>
 
-      {errors && (
-        <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
-          {errors}
-        </p>
-      )}
+      <form onSubmit={handleSubmit} className="space-y-5">
+        {step === 1 && (
+          <>
+            <Field label="Full name" required>
+              <input
+                className="input"
+                value={form.applicantName}
+                onChange={(e) => update("applicantName", e.target.value)}
+                autoComplete="name"
+              />
+            </Field>
 
-      <button type="submit" disabled={isPending} className="btn-primary w-full">
-        {isPending ? "Submitting…" : "Submit application"}
-      </button>
-    </form>
+            <Field label="Email" required>
+              <input
+                className="input"
+                type="email"
+                value={form.email}
+                onChange={(e) => update("email", e.target.value)}
+                autoComplete="email"
+              />
+            </Field>
+
+            <Field label="Phone number" required>
+              <input
+                className="input"
+                type="tel"
+                value={form.phone}
+                onChange={(e) => update("phone", e.target.value)}
+                autoComplete="tel"
+              />
+            </Field>
+          </>
+        )}
+
+        {step === 2 && (
+          <>
+            <Field label="Business name" required>
+              <input
+                className="input"
+                value={form.businessName}
+                onChange={(e) => update("businessName", e.target.value)}
+              />
+            </Field>
+
+            <Field label="Business type" required>
+              <select
+                className="input"
+                value={form.businessType}
+                onChange={(e) => update("businessType", e.target.value)}
+              >
+                {BUSINESS_TYPES.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Grant amount requested (₦)" required>
+              <input
+                className="input"
+                type="number"
+                min={0}
+                value={form.grantAmountRequested}
+                onChange={(e) => update("grantAmountRequested", e.target.value)}
+              />
+            </Field>
+          </>
+        )}
+
+        {step === 3 && (
+          <div className="space-y-3">
+            <ReviewRow label="Full name" value={form.applicantName} />
+            <ReviewRow label="Email" value={form.email} />
+            <ReviewRow label="Phone" value={form.phone} />
+            <ReviewRow label="Business name" value={form.businessName} />
+            <ReviewRow label="Business type" value={form.businessType} />
+            <ReviewRow
+              label="Grant amount"
+              value={`₦${Number(form.grantAmountRequested || 0).toLocaleString()}`}
+            />
+          </div>
+        )}
+
+        {/* Honeypot — visually hidden, never in the tab order, present on every step */}
+        <div aria-hidden="true" className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden">
+          <label htmlFor="website">Website</label>
+          <input
+            id="website"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={form.website}
+            onChange={(e) => update("website", e.target.value)}
+          />
+        </div>
+
+        {errors && (
+          <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
+            {errors}
+          </p>
+        )}
+
+        <div className="flex gap-3 pt-2">
+          {step > 1 && (
+            <button type="button" onClick={goBack} className="btn-secondary flex-1">
+              Back
+            </button>
+          )}
+          {step < 3 && (
+            <button type="button" onClick={goNext} className="btn-primary flex-1">
+              Continue
+            </button>
+          )}
+          {step === 3 && (
+            <button type="submit" disabled={isPending} className="btn-primary flex-1">
+              {isPending ? "Submitting…" : "Submit application"}
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
   );
 }
 
@@ -240,5 +305,14 @@ function Field({
       </span>
       {children}
     </label>
+  );
+}
+
+function ReviewRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between border-b border-line py-2 text-sm">
+      <span className="text-slate">{label}</span>
+      <span className="font-medium text-ink">{value || "—"}</span>
+    </div>
   );
 }
