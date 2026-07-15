@@ -103,6 +103,21 @@ const STEPS = [
   { label: "Commitment", icon: ClipboardCheck },
 ];
 
+function filled(value: string | number | boolean | string[] | undefined): boolean {
+  if (typeof value === "string") return value.trim().length > 0;
+  if (typeof value === "number") return value > 0;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "boolean") return value;
+  return false;
+}
+
+/** Reveals its children with a soft fade/slide-in once `show` becomes true, so each
+ * step feels like one question leading to the next rather than a wall of fields. */
+function Reveal({ show, children }: { show: boolean; children: React.ReactNode }) {
+  if (!show) return null;
+  return <div className="field-reveal">{children}</div>;
+}
+
 interface Props {
   token: string;
   referralResolved: boolean;
@@ -405,460 +420,605 @@ export default function ApplicationForm({ token }: Props) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
-        {step === 1 && (
-          <>
-            <SectionHeading title="Personal Information" />
-            <Field label="Full name" required>
-              <input
-                className="input"
-                value={form.applicantName}
-                onChange={(e) => update("applicantName", e.target.value)}
-                autoComplete="name"
-              />
-            </Field>
+        {step === 1 && (() => {
+          const showGender = filled(form.applicantName);
+          const showDob = showGender && filled(form.gender);
+          const showPhone = showDob && filled(form.dateOfBirth);
+          const showEmail = showPhone && filled(form.phone);
+          const showState = showEmail && filled(form.email);
+          const showLga = showState && filled(form.stateOfResidence);
+          const showOptionalContacts = showLga && filled(form.lga);
+          const showEntrepreneurProfile = showOptionalContacts;
+          const showPriorBusiness = showEntrepreneurProfile && filled(form.currentStatus);
 
-            <RadioGroup
-              label="Gender"
-              required
-              options={["Male", "Female", "Prefer not to say"]}
-              value={form.gender}
-              onChange={(v) => update("gender", v)}
-            />
-
-            <Field label="Date of birth" required>
-              <input
-                className="input"
-                type="date"
-                value={form.dateOfBirth}
-                onChange={(e) => update("dateOfBirth", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Phone number" required>
-              <input
-                className="input"
-                type="tel"
-                value={form.phone}
-                onChange={(e) => update("phone", e.target.value)}
-                autoComplete="tel"
-              />
-            </Field>
-
-            <Field label="Email address" required>
-              <input
-                className="input"
-                type="email"
-                value={form.email}
-                onChange={(e) => update("email", e.target.value)}
-                autoComplete="email"
-              />
-            </Field>
-
-            <Field label="State of residence" required>
-              <select
-                className="input"
-                value={form.stateOfResidence}
-                onChange={(e) => update("stateOfResidence", e.target.value)}
-              >
-                <option value="">Select a state</option>
-                {NIGERIA_STATES.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <Field label="Local Government Area" required>
-              <input className="input" value={form.lga} onChange={(e) => update("lga", e.target.value)} />
-            </Field>
-
-            <Field label="LinkedIn profile (optional)">
-              <input
-                className="input"
-                value={form.linkedin}
-                onChange={(e) => update("linkedin", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Social media handle(s) for your business (optional)">
-              <input
-                className="input"
-                value={form.businessSocialHandle}
-                onChange={(e) => update("businessSocialHandle", e.target.value)}
-              />
-            </Field>
-
-            <SectionHeading title="Entrepreneur Profile" />
-            <RadioGroup
-              label="What best describes your current status?"
-              required
-              options={CURRENT_STATUS_OPTIONS}
-              value={form.currentStatus}
-              onChange={(v) => update("currentStatus", v)}
-            />
-
-            <RadioGroup
-              label="Have you previously started or managed a business before?"
-              required
-              options={["Yes", "No"]}
-              value={form.hasPriorBusiness}
-              onChange={(v) => update("hasPriorBusiness", v)}
-            />
-
-            {form.hasPriorBusiness === "Yes" && (
-              <Field label="Briefly describe your previous business experience" required>
-                <textarea
-                  className="input min-h-[100px]"
-                  value={form.priorBusinessDescription}
-                  onChange={(e) => update("priorBusinessDescription", e.target.value)}
+          return (
+            <>
+              <SectionHeading title="Personal Information" />
+              <Field label="Full name" required>
+                <input
+                  className="input"
+                  value={form.applicantName}
+                  onChange={(e) => update("applicantName", e.target.value)}
+                  autoComplete="name"
                 />
               </Field>
-            )}
-          </>
-        )}
 
-        {step === 2 && (
-          <>
-            <SectionHeading title="Business Information" />
-            <Field label="Business name" required>
-              <input
-                className="input"
-                value={form.businessName}
-                onChange={(e) => update("businessName", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Briefly describe your business" required>
-              <textarea
-                className="input min-h-[100px]"
-                placeholder="What products/services do you provide?"
-                value={form.businessDescription}
-                onChange={(e) => update("businessDescription", e.target.value)}
-              />
-            </Field>
-
-            <Field label="What industry does your business operate in?" required>
-              <select className="input" value={form.industry} onChange={(e) => update("industry", e.target.value)}>
-                <option value="">Select an industry</option>
-                {INDUSTRIES.map((i) => (
-                  <option key={i} value={i}>
-                    {i}
-                  </option>
-                ))}
-              </select>
-            </Field>
-
-            <RadioGroup
-              label="What category of support are you applying for?"
-              required
-              options={SUPPORT_CATEGORIES}
-              value={form.supportCategory}
-              onChange={(v) => update("supportCategory", v)}
-            />
-
-            <SectionHeading title="Business Stage & Operations" />
-            <RadioGroup
-              label="What stage is your business currently?"
-              required
-              options={BUSINESS_STAGE_OPTIONS}
-              value={form.businessStage}
-              onChange={(v) => update("businessStage", v)}
-            />
-
-            <RadioGroup
-              label="How long has your business been operating?"
-              required
-              options={OPERATING_DURATION_OPTIONS}
-              value={form.operatingDuration}
-              onChange={(v) => update("operatingDuration", v)}
-            />
-
-            <Field label="Date your business was established/launched" required>
-              <input
-                className="input"
-                type="date"
-                value={form.dateEstablished}
-                onChange={(e) => update("dateEstablished", e.target.value)}
-              />
-            </Field>
-
-            <RadioGroup
-              label="Is your business currently registered?"
-              required
-              options={REGISTRATION_STATUS_OPTIONS}
-              value={form.registrationStatus}
-              onChange={(v) => update("registrationStatus", v)}
-            />
-
-            <Field label="CAC registration number (if available)">
-              <input
-                className="input"
-                value={form.cacNumber}
-                onChange={(e) => update("cacNumber", e.target.value)}
-              />
-            </Field>
-
-            <RadioGroup
-              label="Where does your business currently operate?"
-              required
-              options={OPERATING_LOCATION_OPTIONS}
-              value={form.operatingLocation}
-              onChange={(v) => update("operatingLocation", v)}
-            />
-
-            <RadioGroup
-              label="How many people currently work in your business?"
-              required
-              options={EMPLOYEE_COUNT_OPTIONS}
-              value={form.employeeCount}
-              onChange={(v) => update("employeeCount", v)}
-            />
-          </>
-        )}
-
-        {step === 3 && (
-          <>
-            <SectionHeading title="Revenue & Business Performance" />
-            <RadioGroup
-              label="Has your business started generating revenue?"
-              required
-              options={["Yes", "No"]}
-              value={form.hasRevenue}
-              onChange={(v) => update("hasRevenue", v)}
-            />
-
-            {form.hasRevenue === "Yes" && (
-              <RadioGroup
-                label="What is your average monthly revenue?"
-                required
-                options={AVG_MONTHLY_REVENUE_OPTIONS}
-                value={form.avgMonthlyRevenue}
-                onChange={(v) => update("avgMonthlyRevenue", v)}
-              />
-            )}
-
-            <Field label="What was your business revenue in the last 12 months?" required>
-              <input
-                className="input"
-                value={form.revenueLast12Months}
-                onChange={(e) => update("revenueLast12Months", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Who are your main customers?" required>
-              <textarea
-                className="input min-h-[90px]"
-                value={form.mainCustomers}
-                onChange={(e) => update("mainCustomers", e.target.value)}
-              />
-            </Field>
-
-            <CheckboxGroup
-              label="How do customers currently find your business?"
-              required
-              options={CUSTOMER_CHANNEL_OPTIONS}
-              values={form.customerAcquisitionChannels}
-              onToggle={(v) => toggleArrayValue("customerAcquisitionChannels", v)}
-            />
-
-            <SectionHeading title="Funding Need & Business Needs" />
-            <Field label="How much funding are you requesting (₦)?" required>
-              <input
-                className="input"
-                type="number"
-                min={0}
-                value={form.grantAmountRequested || ""}
-                onChange={(e) => update("grantAmountRequested", Number(e.target.value))}
-              />
-            </Field>
-
-            <CheckboxGroup
-              label="What will you use the grant funding for?"
-              required
-              options={FUNDING_USE_OPTIONS}
-              values={form.fundingUse}
-              onToggle={(v) => toggleArrayValue("fundingUse", v)}
-            />
-
-            <Field label="Explain specifically how this funding will help your business grow" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.fundingGrowthExplanation}
-                onChange={(e) => update("fundingGrowthExplanation", e.target.value)}
-              />
-            </Field>
-
-            <Field label="What is the biggest challenge currently affecting your business growth?" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.biggestChallenge}
-                onChange={(e) => update("biggestChallenge", e.target.value)}
-              />
-            </Field>
-          </>
-        )}
-
-        {step === 4 && (
-          <>
-            <SectionHeading title="Entrepreneur Vision & Impact" />
-            <Field label={`Why did you start ${bizName || "this business"}?`} required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.whyStartBusiness}
-                onChange={(e) => update("whyStartBusiness", e.target.value)}
-              />
-              {form.whyStartBusiness.trim().split(/\s+/).length > 12 && (
-                <p className="mt-1.5 text-xs text-brand">That comes through clearly — thank you for sharing it.</p>
-              )}
-            </Field>
-
-            <Field label="What problem does your business solve?" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.problemSolved}
-                onChange={(e) => update("problemSolved", e.target.value)}
-              />
-            </Field>
-
-            <Field label="What impact do you hope to create through your business?" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.desiredImpact}
-                onChange={(e) => update("desiredImpact", e.target.value)}
-              />
-            </Field>
-
-            <Field label={`Where do you see ${bizName || "your business"} in the next 5 years?`} required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.fiveYearVision}
-                onChange={(e) => update("fiveYearVision", e.target.value)}
-              />
-            </Field>
-
-            <RadioGroup
-              label="How many jobs do you hope to create through your business?"
-              required
-              options={JOBS_TO_CREATE_OPTIONS}
-              value={form.jobsToCreate}
-              onChange={(v) => update("jobsToCreate", v)}
-            />
-
-            <SectionHeading title="Grant Application Questions" />
-            <Field label="Why are you applying for the Globe Tech SME Grant & Business Support Program?" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.whyApplying}
-                onChange={(e) => update("whyApplying", e.target.value)}
-              />
-            </Field>
-
-            <Field label="Why should your business be selected for this grant opportunity?" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.whySelected}
-                onChange={(e) => update("whySelected", e.target.value)}
-              />
-            </Field>
-
-            <Field label="What makes your business different from others in your industry?" required>
-              <textarea
-                className="input min-h-[100px]"
-                value={form.whatMakesDifferent}
-                onChange={(e) => update("whatMakesDifferent", e.target.value)}
-              />
-            </Field>
-
-            <RadioGroup
-              label="Have you applied for a grant opportunity before?"
-              required
-              options={["Yes", "No"]}
-              value={form.appliedBefore}
-              onChange={(v) => update("appliedBefore", v)}
-            />
-
-            {form.appliedBefore === "Yes" && (
-              <>
+              <Reveal show={showGender}>
                 <RadioGroup
-                  label="If yes, did you receive funding?"
+                  label="Gender"
                   required
-                  options={["Yes", "No"]}
-                  value={form.receivedFundingBefore}
-                  onChange={(v) => update("receivedFundingBefore", v)}
+                  options={["Male", "Female", "Prefer not to say"]}
+                  value={form.gender}
+                  onChange={(v) => update("gender", v)}
                 />
-                <Field label="Please share details">
-                  <textarea
-                    className="input min-h-[80px]"
-                    value={form.priorFundingDetails}
-                    onChange={(e) => update("priorFundingDetails", e.target.value)}
+              </Reveal>
+
+              <Reveal show={showDob}>
+                <Field label="Date of birth" required>
+                  <input
+                    className="input"
+                    type="date"
+                    value={form.dateOfBirth}
+                    onChange={(e) => update("dateOfBirth", e.target.value)}
                   />
                 </Field>
-              </>
-            )}
-          </>
-        )}
+              </Reveal>
 
-        {step === 5 && (
-          <>
-            <SectionHeading title="Business Academy Commitment" />
-            <RadioGroup
-              label="Are you willing to participate in the Globe Tech Business Academy training sessions if selected?"
-              required
-              options={["Yes", "No"]}
-              value={form.willingAcademy}
-              onChange={(v) => update("willingAcademy", v)}
-            />
+              <Reveal show={showPhone}>
+                <Field label="Phone number" required>
+                  <input
+                    className="input"
+                    type="tel"
+                    value={form.phone}
+                    onChange={(e) => update("phone", e.target.value)}
+                    autoComplete="tel"
+                  />
+                </Field>
+              </Reveal>
 
-            <RadioGroup
-              label="Are you willing to commit time to mentorship sessions, assignments, and business improvement activities?"
-              required
-              options={["Yes", "No"]}
-              value={form.willingMentorship}
-              onChange={(v) => update("willingMentorship", v)}
-            />
+              <Reveal show={showEmail}>
+                <Field label="Email address" required>
+                  <input
+                    className="input"
+                    type="email"
+                    value={form.email}
+                    onChange={(e) => update("email", e.target.value)}
+                    autoComplete="email"
+                  />
+                </Field>
+              </Reveal>
 
-            <CheckboxGroup
-              label="What areas of business development would you like to improve?"
-              required
-              options={IMPROVEMENT_AREA_OPTIONS}
-              values={form.improvementAreas}
-              onToggle={(v) => toggleArrayValue("improvementAreas", v)}
-            />
+              <Reveal show={showState}>
+                <Field label="State of residence" required>
+                  <select
+                    className="input"
+                    value={form.stateOfResidence}
+                    onChange={(e) => update("stateOfResidence", e.target.value)}
+                  >
+                    <option value="">Select a state</option>
+                    {NIGERIA_STATES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </Reveal>
 
-            <SectionHeading title="Referral Information" />
-            <RadioGroup
-              label="How did you hear about the Globe Tech SME Grant & Business Support Program?"
-              required
-              options={HOW_HEARD_OPTIONS}
-              value={form.howHeard}
-              onChange={(v) => update("howHeard", v)}
-            />
+              <Reveal show={showLga}>
+                <Field label="Local Government Area" required>
+                  <input className="input" value={form.lga} onChange={(e) => update("lga", e.target.value)} />
+                </Field>
+              </Reveal>
 
-            <Field label="Do you belong to any entrepreneur/community/business network? (optional)">
-              <textarea
-                className="input min-h-[80px]"
-                value={form.entrepreneurNetwork}
-                onChange={(e) => update("entrepreneurNetwork", e.target.value)}
+              <Reveal show={showOptionalContacts}>
+                <Field label="LinkedIn profile (optional)">
+                  <input
+                    className="input"
+                    value={form.linkedin}
+                    onChange={(e) => update("linkedin", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showOptionalContacts}>
+                <Field label="Social media handle(s) for your business (optional)">
+                  <input
+                    className="input"
+                    value={form.businessSocialHandle}
+                    onChange={(e) => update("businessSocialHandle", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showEntrepreneurProfile}>
+                <SectionHeading title="Entrepreneur Profile" />
+                <RadioGroup
+                  label="What best describes your current status?"
+                  required
+                  options={CURRENT_STATUS_OPTIONS}
+                  value={form.currentStatus}
+                  onChange={(v) => update("currentStatus", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showPriorBusiness}>
+                <RadioGroup
+                  label="Have you previously started or managed a business before?"
+                  required
+                  options={["Yes", "No"]}
+                  value={form.hasPriorBusiness}
+                  onChange={(v) => update("hasPriorBusiness", v)}
+                />
+              </Reveal>
+
+              {showPriorBusiness && form.hasPriorBusiness === "Yes" && (
+                <Reveal show={true}>
+                  <Field label="Briefly describe your previous business experience" required>
+                    <textarea
+                      className="input min-h-[100px]"
+                      value={form.priorBusinessDescription}
+                      onChange={(e) => update("priorBusinessDescription", e.target.value)}
+                    />
+                  </Field>
+                </Reveal>
+              )}
+            </>
+          );
+        })()}
+
+        {step === 2 && (() => {
+          const showDescription = filled(form.businessName);
+          const showIndustry = showDescription && filled(form.businessDescription);
+          const showSupportCategory = showIndustry && filled(form.industry);
+          const showStage = showSupportCategory && filled(form.supportCategory);
+          const showDuration = showStage && filled(form.businessStage);
+          const showDateEstablished = showDuration && filled(form.operatingDuration);
+          const showRegistrationStatus = showDateEstablished && filled(form.dateEstablished);
+          const showAfterRegistration = showRegistrationStatus && filled(form.registrationStatus);
+          const showEmployeeCount = showAfterRegistration && filled(form.operatingLocation);
+
+          return (
+            <>
+              <SectionHeading title="Business Information" />
+              <Field label="Business name" required>
+                <input
+                  className="input"
+                  value={form.businessName}
+                  onChange={(e) => update("businessName", e.target.value)}
+                />
+              </Field>
+
+              <Reveal show={showDescription}>
+                <Field label="Briefly describe your business" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    placeholder="What products/services do you provide?"
+                    value={form.businessDescription}
+                    onChange={(e) => update("businessDescription", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showIndustry}>
+                <Field label="What industry does your business operate in?" required>
+                  <select
+                    className="input"
+                    value={form.industry}
+                    onChange={(e) => update("industry", e.target.value)}
+                  >
+                    <option value="">Select an industry</option>
+                    {INDUSTRIES.map((i) => (
+                      <option key={i} value={i}>
+                        {i}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </Reveal>
+
+              <Reveal show={showSupportCategory}>
+                <RadioGroup
+                  label="What category of support are you applying for?"
+                  required
+                  options={SUPPORT_CATEGORIES}
+                  value={form.supportCategory}
+                  onChange={(v) => update("supportCategory", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showStage}>
+                <SectionHeading title="Business Stage & Operations" />
+                <RadioGroup
+                  label="What stage is your business currently?"
+                  required
+                  options={BUSINESS_STAGE_OPTIONS}
+                  value={form.businessStage}
+                  onChange={(v) => update("businessStage", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showDuration}>
+                <RadioGroup
+                  label="How long has your business been operating?"
+                  required
+                  options={OPERATING_DURATION_OPTIONS}
+                  value={form.operatingDuration}
+                  onChange={(v) => update("operatingDuration", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showDateEstablished}>
+                <Field label="Date your business was established/launched" required>
+                  <input
+                    className="input"
+                    type="date"
+                    value={form.dateEstablished}
+                    onChange={(e) => update("dateEstablished", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showRegistrationStatus}>
+                <RadioGroup
+                  label="Is your business currently registered?"
+                  required
+                  options={REGISTRATION_STATUS_OPTIONS}
+                  value={form.registrationStatus}
+                  onChange={(v) => update("registrationStatus", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showAfterRegistration}>
+                <Field label="CAC registration number (if available)">
+                  <input
+                    className="input"
+                    value={form.cacNumber}
+                    onChange={(e) => update("cacNumber", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showAfterRegistration}>
+                <RadioGroup
+                  label="Where does your business currently operate?"
+                  required
+                  options={OPERATING_LOCATION_OPTIONS}
+                  value={form.operatingLocation}
+                  onChange={(v) => update("operatingLocation", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showEmployeeCount}>
+                <RadioGroup
+                  label="How many people currently work in your business?"
+                  required
+                  options={EMPLOYEE_COUNT_OPTIONS}
+                  value={form.employeeCount}
+                  onChange={(v) => update("employeeCount", v)}
+                />
+              </Reveal>
+            </>
+          );
+        })()}
+
+        {step === 3 && (() => {
+          const revenueAnswered =
+            filled(form.hasRevenue) && (form.hasRevenue !== "Yes" || filled(form.avgMonthlyRevenue));
+          const showMainCustomers = revenueAnswered && filled(form.revenueLast12Months);
+          const showChannels = showMainCustomers && filled(form.mainCustomers);
+          const showGrantAmount = showChannels && form.customerAcquisitionChannels.length > 0;
+          const showFundingUse = showGrantAmount && form.grantAmountRequested > 0;
+          const showGrowthExplanation = showFundingUse && form.fundingUse.length > 0;
+          const showBiggestChallenge = showGrowthExplanation && filled(form.fundingGrowthExplanation);
+
+          return (
+            <>
+              <SectionHeading title="Revenue & Business Performance" />
+              <RadioGroup
+                label="Has your business started generating revenue?"
+                required
+                options={["Yes", "No"]}
+                value={form.hasRevenue}
+                onChange={(v) => update("hasRevenue", v)}
               />
-            </Field>
 
-            <SectionHeading title="Final Declaration" />
-            <label className="flex items-start gap-3 rounded-card border border-line bg-paper p-4 text-sm text-ink">
-              <input
-                type="checkbox"
-                className="mt-0.5 h-4 w-4 shrink-0"
-                checked={form.declarationAgreed}
-                onChange={(e) => update("declarationAgreed", e.target.checked)}
+              {filled(form.hasRevenue) && form.hasRevenue === "Yes" && (
+                <Reveal show={true}>
+                  <RadioGroup
+                    label="What is your average monthly revenue?"
+                    required
+                    options={AVG_MONTHLY_REVENUE_OPTIONS}
+                    value={form.avgMonthlyRevenue}
+                    onChange={(v) => update("avgMonthlyRevenue", v)}
+                  />
+                </Reveal>
+              )}
+
+              <Reveal show={revenueAnswered}>
+                <Field label="What was your business revenue in the last 12 months?" required>
+                  <input
+                    className="input"
+                    value={form.revenueLast12Months}
+                    onChange={(e) => update("revenueLast12Months", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showMainCustomers}>
+                <Field label="Who are your main customers?" required>
+                  <textarea
+                    className="input min-h-[90px]"
+                    value={form.mainCustomers}
+                    onChange={(e) => update("mainCustomers", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showChannels}>
+                <CheckboxGroup
+                  label="How do customers currently find your business?"
+                  required
+                  options={CUSTOMER_CHANNEL_OPTIONS}
+                  values={form.customerAcquisitionChannels}
+                  onToggle={(v) => toggleArrayValue("customerAcquisitionChannels", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showGrantAmount}>
+                <SectionHeading title="Funding Need & Business Needs" />
+                <Field label="How much funding are you requesting (₦)?" required>
+                  <input
+                    className="input"
+                    type="number"
+                    min={0}
+                    value={form.grantAmountRequested || ""}
+                    onChange={(e) => update("grantAmountRequested", Number(e.target.value))}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showFundingUse}>
+                <CheckboxGroup
+                  label="What will you use the grant funding for?"
+                  required
+                  options={FUNDING_USE_OPTIONS}
+                  values={form.fundingUse}
+                  onToggle={(v) => toggleArrayValue("fundingUse", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showGrowthExplanation}>
+                <Field label="Explain specifically how this funding will help your business grow" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.fundingGrowthExplanation}
+                    onChange={(e) => update("fundingGrowthExplanation", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showBiggestChallenge}>
+                <Field label="What is the biggest challenge currently affecting your business growth?" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.biggestChallenge}
+                    onChange={(e) => update("biggestChallenge", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+            </>
+          );
+        })()}
+
+        {step === 4 && (() => {
+          const showProblemSolved = filled(form.whyStartBusiness);
+          const showDesiredImpact = showProblemSolved && filled(form.problemSolved);
+          const showFiveYearVision = showDesiredImpact && filled(form.desiredImpact);
+          const showJobsToCreate = showFiveYearVision && filled(form.fiveYearVision);
+          const showWhyApplying = showJobsToCreate && filled(form.jobsToCreate);
+          const showWhySelected = showWhyApplying && filled(form.whyApplying);
+          const showWhatMakesDifferent = showWhySelected && filled(form.whySelected);
+          const showAppliedBefore = showWhatMakesDifferent && filled(form.whatMakesDifferent);
+
+          return (
+            <>
+              <SectionHeading title="Entrepreneur Vision & Impact" />
+              <Field label={`Why did you start ${bizName || "this business"}?`} required>
+                <textarea
+                  className="input min-h-[100px]"
+                  value={form.whyStartBusiness}
+                  onChange={(e) => update("whyStartBusiness", e.target.value)}
+                />
+                {form.whyStartBusiness.trim().split(/\s+/).length > 12 && (
+                  <p className="mt-1.5 text-xs text-brand">That comes through clearly — thank you for sharing it.</p>
+                )}
+              </Field>
+
+              <Reveal show={showProblemSolved}>
+                <Field label="What problem does your business solve?" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.problemSolved}
+                    onChange={(e) => update("problemSolved", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showDesiredImpact}>
+                <Field label="What impact do you hope to create through your business?" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.desiredImpact}
+                    onChange={(e) => update("desiredImpact", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showFiveYearVision}>
+                <Field label={`Where do you see ${bizName || "your business"} in the next 5 years?`} required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.fiveYearVision}
+                    onChange={(e) => update("fiveYearVision", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showJobsToCreate}>
+                <RadioGroup
+                  label="How many jobs do you hope to create through your business?"
+                  required
+                  options={JOBS_TO_CREATE_OPTIONS}
+                  value={form.jobsToCreate}
+                  onChange={(v) => update("jobsToCreate", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showWhyApplying}>
+                <SectionHeading title="Grant Application Questions" />
+                <Field label="Why are you applying for the Globe Tech SME Grant & Business Support Program?" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.whyApplying}
+                    onChange={(e) => update("whyApplying", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showWhySelected}>
+                <Field label="Why should your business be selected for this grant opportunity?" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.whySelected}
+                    onChange={(e) => update("whySelected", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showWhatMakesDifferent}>
+                <Field label="What makes your business different from others in your industry?" required>
+                  <textarea
+                    className="input min-h-[100px]"
+                    value={form.whatMakesDifferent}
+                    onChange={(e) => update("whatMakesDifferent", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showAppliedBefore}>
+                <RadioGroup
+                  label="Have you applied for a grant opportunity before?"
+                  required
+                  options={["Yes", "No"]}
+                  value={form.appliedBefore}
+                  onChange={(v) => update("appliedBefore", v)}
+                />
+              </Reveal>
+
+              {showAppliedBefore && form.appliedBefore === "Yes" && (
+                <Reveal show={true}>
+                  <>
+                    <RadioGroup
+                      label="If yes, did you receive funding?"
+                      required
+                      options={["Yes", "No"]}
+                      value={form.receivedFundingBefore}
+                      onChange={(v) => update("receivedFundingBefore", v)}
+                    />
+                    <Field label="Please share details">
+                      <textarea
+                        className="input min-h-[80px]"
+                        value={form.priorFundingDetails}
+                        onChange={(e) => update("priorFundingDetails", e.target.value)}
+                      />
+                    </Field>
+                  </>
+                </Reveal>
+              )}
+            </>
+          );
+        })()}
+
+        {step === 5 && (() => {
+          const showMentorship = filled(form.willingAcademy);
+          const showImprovementAreas = showMentorship && filled(form.willingMentorship);
+          const showHowHeard = showImprovementAreas && form.improvementAreas.length > 0;
+          const showFinal = showHowHeard && filled(form.howHeard);
+
+          return (
+            <>
+              <SectionHeading title="Business Academy Commitment" />
+              <RadioGroup
+                label="Are you willing to participate in the Globe Tech Business Academy training sessions if selected?"
+                required
+                options={["Yes", "No"]}
+                value={form.willingAcademy}
+                onChange={(v) => update("willingAcademy", v)}
               />
-              <span>
-                I confirm that the information provided in this application is accurate and
-                complete. I understand that submission of this application does not guarantee
-                funding and that selected applicants may undergo further evaluation.
-              </span>
-            </label>
-          </>
-        )}
+
+              <Reveal show={showMentorship}>
+                <RadioGroup
+                  label="Are you willing to commit time to mentorship sessions, assignments, and business improvement activities?"
+                  required
+                  options={["Yes", "No"]}
+                  value={form.willingMentorship}
+                  onChange={(v) => update("willingMentorship", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showImprovementAreas}>
+                <CheckboxGroup
+                  label="What areas of business development would you like to improve?"
+                  required
+                  options={IMPROVEMENT_AREA_OPTIONS}
+                  values={form.improvementAreas}
+                  onToggle={(v) => toggleArrayValue("improvementAreas", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showHowHeard}>
+                <SectionHeading title="Referral Information" />
+                <RadioGroup
+                  label="How did you hear about the Globe Tech SME Grant & Business Support Program?"
+                  required
+                  options={HOW_HEARD_OPTIONS}
+                  value={form.howHeard}
+                  onChange={(v) => update("howHeard", v)}
+                />
+              </Reveal>
+
+              <Reveal show={showFinal}>
+                <Field label="Do you belong to any entrepreneur/community/business network? (optional)">
+                  <textarea
+                    className="input min-h-[80px]"
+                    value={form.entrepreneurNetwork}
+                    onChange={(e) => update("entrepreneurNetwork", e.target.value)}
+                  />
+                </Field>
+              </Reveal>
+
+              <Reveal show={showFinal}>
+                <>
+                  <SectionHeading title="Final Declaration" />
+                  <label className="flex items-start gap-3 rounded-card border border-line bg-paper p-4 text-sm text-ink">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 shrink-0"
+                      checked={form.declarationAgreed}
+                      onChange={(e) => update("declarationAgreed", e.target.checked)}
+                    />
+                    <span>
+                      I confirm that the information provided in this application is accurate and
+                      complete. I understand that submission of this application does not guarantee
+                      funding and that selected applicants may undergo further evaluation.
+                    </span>
+                  </label>
+                </>
+              </Reveal>
+            </>
+          );
+        })()}
 
         {/* Honeypot — visually hidden, never in the tab order, present on every step */}
         <div aria-hidden="true" className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden">

@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Globe-Tech — SME Grant Referral",
-  description: "Apply for the FirstBank SME Grant through your Globe-Tech referral.",
+  description: "Globe-Tech SME Grant Application.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

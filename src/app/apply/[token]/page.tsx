@@ -24,12 +24,8 @@ export default async function ApplyPage({
             Globe-Tech &middot; SME Grant Referral
           </p>
           <h1 className="mt-3 font-display text-3xl font-semibold text-ink sm:text-4xl">
-            Apply for the FirstBank SME Grant
+            Globe-Tech SME Grant Application
           </h1>
-          <p className="mt-3 text-slate">
-            This link tags your application to the Globe-Tech staff member who referred you, so
-            fill it out here rather than searching for the form elsewhere.
-          </p>
         </header>
 
         <ApplicationForm token={token} referralResolved={Boolean(staffId)} />
