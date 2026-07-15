@@ -17,7 +17,7 @@ export default async function ApplyPage({
 
   return (
     <main className="min-h-screen">
-      <div className="mx-auto max-w-2xl px-6 py-14 sm:py-20">
+      <div className="mx-auto max-w-3xl px-6 py-14 sm:py-20">
         <header className="mb-10">
           <BrandMark size="sm" />
           <p className="mt-6 font-mono text-xs uppercase tracking-widest text-gold">

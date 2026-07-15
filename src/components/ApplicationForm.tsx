@@ -1,26 +1,106 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { User, Building2, CheckCircle2 } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { User, Building2, Wallet, Compass, ClipboardCheck, Sparkles } from "lucide-react";
 import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
+import type { SubmitApplicationInput } from "@/app/apply/[token]/actions";
 import CopyButton from "@/components/CopyButton";
 import Stepper from "@/components/Stepper";
 
-const BUSINESS_TYPES = [
-  "Retail / Trading",
-  "Agriculture / Agro-processing",
-  "Manufacturing",
-  "Technology / Digital services",
-  "Food & Beverage",
-  "Fashion / Textiles",
-  "Logistics / Transport",
-  "Other",
+const NIGERIA_STATES = [
+  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
+  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT - Abuja", "Gombe",
+  "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
+  "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto",
+  "Taraba", "Yobe", "Zamfara",
+];
+
+const INDUSTRIES = [
+  "Agriculture & Agribusiness", "Technology & Software", "Education", "Healthcare",
+  "FinTech", "Manufacturing", "Retail & E-commerce", "Fashion & Beauty",
+  "Food & Hospitality", "Logistics & Transportation", "Real Estate",
+  "Creative Industry", "Professional Services", "Renewable Energy", "Other",
+];
+
+const SUPPORT_CATEGORIES = [
+  "Startup Capital Support",
+  "Scaling Capital Support",
+  "Expansion Capital Support",
+];
+
+const CURRENT_STATUS_OPTIONS = [
+  "Full-time entrepreneur",
+  "Part-time entrepreneur",
+  "Student entrepreneur",
+  "Employee running a business",
+  "Aspiring entrepreneur (business yet to start)",
+];
+
+const BUSINESS_STAGE_OPTIONS = [
+  "Idea Stage (Business concept only, not yet launched)",
+  "Pre-launch Stage (Preparing to start)",
+  "Early Stage (0–2 years in operation)",
+  "Growth Stage (2–5 years in operation)",
+  "Established Stage (5+ years in operation)",
+];
+
+const OPERATING_DURATION_OPTIONS = [
+  "Yet to start operations",
+  "Less than 6 months",
+  "6 months – 1 year",
+  "2–3 years",
+  "3–4 years",
+  "5 years and above",
+];
+
+const REGISTRATION_STATUS_OPTIONS = [
+  "Yes, my CAC certificate is available",
+  "Yes, I have paid for registration and awaiting completion",
+  "No, but I intend to register",
+  "No",
+];
+
+const OPERATING_LOCATION_OPTIONS = ["Online only", "Physical location only", "Both online and physical location"];
+
+const EMPLOYEE_COUNT_OPTIONS = ["Just me", "2–5 people", "6–10 people", "11–25 people", "More than 25 people"];
+
+const AVG_MONTHLY_REVENUE_OPTIONS = [
+  "Less than ₦50,000",
+  "₦50,000 – ₦250,000",
+  "₦250,000 – ₦1 Million",
+  "₦1 Million – ₦5 Million",
+  "Above ₦5 Million",
+];
+
+const CUSTOMER_CHANNEL_OPTIONS = [
+  "Social Media", "Referrals", "Website", "Online Marketplace",
+  "Physical Location", "Advertising", "Partnerships", "Other",
+];
+
+const FUNDING_USE_OPTIONS = [
+  "Equipment purchase", "Inventory/stock", "Marketing and customer acquisition",
+  "Technology development", "Hiring staff", "Business registration",
+  "Expansion to new locations", "Product development", "Working capital", "Other",
+];
+
+const JOBS_TO_CREATE_OPTIONS = ["1–5 jobs", "6–20 jobs", "21–50 jobs", "More than 50 jobs"];
+
+const IMPROVEMENT_AREA_OPTIONS = [
+  "Business Strategy", "Marketing & Sales", "Financial Management", "Branding",
+  "Digital Transformation", "Customer Acquisition", "Operations Management",
+  "Leadership", "Fundraising",
+];
+
+const HOW_HEARD_OPTIONS = [
+  "Social Media", "Friend/Referral", "Partner Organization", "Email", "Website", "Event", "Other",
 ];
 
 const STEPS = [
-  { label: "Your Details", icon: User },
+  { label: "About You", icon: User },
   { label: "Your Business", icon: Building2 },
-  { label: "Review & Submit", icon: CheckCircle2 },
+  { label: "Revenue & Funding", icon: Wallet },
+  { label: "Vision & Grant", icon: Compass },
+  { label: "Commitment", icon: ClipboardCheck },
 ];
 
 interface Props {
@@ -28,36 +108,79 @@ interface Props {
   referralResolved: boolean;
 }
 
-type FormState = {
-  applicantName: string;
-  email: string;
-  phone: string;
-  businessName: string;
-  businessType: string;
-  grantAmountRequested: string;
-  website: string; // honeypot — labeled to look plausible to a bot, hidden from real users
-};
+type FormState = Omit<SubmitApplicationInput, "token" | "honeypot">;
 
 const initialState: FormState = {
   applicantName: "",
-  email: "",
+  gender: "",
+  dateOfBirth: "",
   phone: "",
+  email: "",
+  stateOfResidence: "",
+  lga: "",
+  linkedin: "",
+  businessSocialHandle: "",
+
+  currentStatus: "",
+  hasPriorBusiness: "",
+  priorBusinessDescription: "",
+
   businessName: "",
-  businessType: BUSINESS_TYPES[0]!,
-  grantAmountRequested: "",
-  website: "",
+  businessDescription: "",
+  industry: "",
+  supportCategory: "",
+
+  businessStage: "",
+  operatingDuration: "",
+  dateEstablished: "",
+  registrationStatus: "",
+  cacNumber: "",
+  operatingLocation: "",
+  employeeCount: "",
+
+  hasRevenue: "",
+  avgMonthlyRevenue: "",
+  revenueLast12Months: "",
+  mainCustomers: "",
+  customerAcquisitionChannels: [],
+
+  grantAmountRequested: 0,
+  fundingUse: [],
+  fundingGrowthExplanation: "",
+  biggestChallenge: "",
+
+  whyStartBusiness: "",
+  problemSolved: "",
+  desiredImpact: "",
+  fiveYearVision: "",
+  jobsToCreate: "",
+
+  whyApplying: "",
+  whySelected: "",
+  whatMakesDifferent: "",
+  appliedBefore: "",
+  receivedFundingBefore: "",
+  priorFundingDetails: "",
+
+  willingAcademy: "",
+  willingMentorship: "",
+  improvementAreas: [],
+
+  howHeard: "",
+  entrepreneurNetwork: "",
+
+  declarationAgreed: false,
 };
 
 export default function ApplicationForm({ token }: Props) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(initialState);
+  const [honeypot, setHoneypot] = useState("");
   const [errors, setErrors] = useState<string | null>(null);
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
-    // Fire-and-forget: persists the token as a cookie fallback + localStorage,
-    // so the referral survives a refresh even without the URL.
     recordVisit(token).catch(() => {
       /* non-fatal — the token in the URL still works at submit time */
     });
@@ -72,23 +195,84 @@ export default function ApplicationForm({ token }: Props) {
     setForm((f) => ({ ...f, [key]: value }));
   }
 
+  function toggleArrayValue(key: "customerAcquisitionChannels" | "fundingUse" | "improvementAreas", value: string) {
+    setForm((f) => {
+      const current = f[key];
+      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+      return { ...f, [key]: next };
+    });
+  }
+
   function validateStep1(): string | null {
     if (!form.applicantName.trim()) return "Enter your full name.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Enter a valid email address.";
+    if (!form.gender) return "Select your gender.";
+    if (!form.dateOfBirth) return "Enter your date of birth.";
     if (!/^[0-9+()\-\s]{7,}$/.test(form.phone)) return "Enter a valid phone number.";
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Enter a valid email address.";
+    if (!form.stateOfResidence) return "Select your state of residence.";
+    if (!form.lga.trim()) return "Enter your Local Government Area.";
+    if (!form.currentStatus) return "Select what best describes your current status.";
+    if (!form.hasPriorBusiness) return "Let us know if you've previously started or managed a business.";
+    if (form.hasPriorBusiness === "Yes" && !form.priorBusinessDescription.trim())
+      return "Briefly describe your previous business experience.";
     return null;
   }
 
   function validateStep2(): string | null {
     if (!form.businessName.trim()) return "Enter your business name.";
-    if (!form.grantAmountRequested || Number(form.grantAmountRequested) <= 0) {
-      return "Enter the grant amount you're requesting.";
-    }
+    if (!form.businessDescription.trim()) return "Briefly describe your business.";
+    if (!form.industry) return "Select your business industry.";
+    if (!form.supportCategory) return "Select the category of support you're applying for.";
+    if (!form.businessStage) return "Select your business stage.";
+    if (!form.operatingDuration) return "Select how long your business has been operating.";
+    if (!form.dateEstablished) return "Enter the date your business was established.";
+    if (!form.registrationStatus) return "Select your business registration status.";
+    if (!form.operatingLocation) return "Select where your business currently operates.";
+    if (!form.employeeCount) return "Select how many people currently work in your business.";
+    return null;
+  }
+
+  function validateStep3(): string | null {
+    if (!form.hasRevenue) return "Let us know if your business has started generating revenue.";
+    if (form.hasRevenue === "Yes" && !form.avgMonthlyRevenue) return "Select your average monthly revenue.";
+    if (!form.revenueLast12Months.trim()) return "Enter your business revenue in the last 12 months.";
+    if (!form.mainCustomers.trim()) return "Describe who your main customers are.";
+    if (form.customerAcquisitionChannels.length === 0) return "Select how customers currently find your business.";
+    if (!form.grantAmountRequested || form.grantAmountRequested <= 0)
+      return "Enter how much funding you're requesting.";
+    if (form.fundingUse.length === 0) return "Select what you'll use the grant funding for.";
+    if (!form.fundingGrowthExplanation.trim()) return "Explain how the funding will help your business grow.";
+    if (!form.biggestChallenge.trim()) return "Describe the biggest challenge affecting your business growth.";
+    return null;
+  }
+
+  function validateStep4(): string | null {
+    if (!form.whyStartBusiness.trim()) return "Tell us why you started this business.";
+    if (!form.problemSolved.trim()) return "Describe the problem your business solves.";
+    if (!form.desiredImpact.trim()) return "Describe the impact you hope to create.";
+    if (!form.fiveYearVision.trim()) return "Tell us where you see your business in 5 years.";
+    if (!form.jobsToCreate) return "Select how many jobs you hope to create.";
+    if (!form.whyApplying.trim()) return "Tell us why you're applying for this program.";
+    if (!form.whySelected.trim()) return "Tell us why your business should be selected.";
+    if (!form.whatMakesDifferent.trim()) return "Tell us what makes your business different.";
+    if (!form.appliedBefore) return "Let us know if you've applied for a grant opportunity before.";
+    if (form.appliedBefore === "Yes" && !form.receivedFundingBefore)
+      return "Let us know if you received funding previously.";
+    return null;
+  }
+
+  function validateStep5(): string | null {
+    if (!form.willingAcademy) return "Let us know if you're willing to join the Business Academy training.";
+    if (!form.willingMentorship) return "Let us know if you can commit time to mentorship and assignments.";
+    if (form.improvementAreas.length === 0) return "Select at least one area of business development to improve.";
+    if (!form.howHeard) return "Select how you heard about the program.";
+    if (!form.declarationAgreed) return "Please confirm the final declaration to submit.";
     return null;
   }
 
   function goNext() {
-    const error = step === 1 ? validateStep1() : validateStep2();
+    const validators = [validateStep1, validateStep2, validateStep3, validateStep4, validateStep5];
+    const error = validators[step - 1]!();
     if (error) {
       setErrors(error);
       return;
@@ -104,18 +288,18 @@ export default function ApplicationForm({ token }: Props) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    const error = validateStep5();
+    if (error) {
+      setErrors(error);
+      return;
+    }
     setErrors(null);
 
     startTransition(async () => {
       const result = await submitApplication({
         token,
-        applicantName: form.applicantName,
-        email: form.email,
-        phone: form.phone,
-        businessName: form.businessName,
-        businessType: form.businessType,
-        grantAmountRequested: Number(form.grantAmountRequested),
-        honeypot: form.website,
+        ...form,
+        honeypot,
       });
 
       if (!result.ok) {
@@ -125,6 +309,55 @@ export default function ApplicationForm({ token }: Props) {
       setSubmittedCode(result.firstBankReferralCode ?? null);
     });
   }
+
+  const firstName = form.applicantName.trim().split(/\s+/)[0] || "";
+  const bizName = form.businessName.trim();
+
+  const coachMessage = useMemo(() => {
+    if (step === 1) {
+      if (!form.applicantName.trim()) {
+        return "Hi! I'm here to make this quick and painless. Let's start with a bit about you — no rush.";
+      }
+      if (!form.currentStatus) {
+        return `Good to meet you, ${firstName}. Tell me a little about where you're at as an entrepreneur.`;
+      }
+      if (form.hasPriorBusiness === "Yes") {
+        return `Running a business before is real experience, ${firstName} — it'll help your case here.`;
+      }
+      return `Thanks, ${firstName}. One more question here, then we'll get into your business.`;
+    }
+    if (step === 2) {
+      if (!form.businessName.trim()) {
+        return "Now for the fun part — tell me about the business itself.";
+      }
+      if (!form.industry) {
+        return `${bizName} — nice. What space is it operating in?`;
+      }
+      if (form.businessStage?.startsWith("Idea") || form.businessStage?.startsWith("Pre-launch")) {
+        return `An early-stage idea is exactly the kind of thing this grant exists for. Let's map out where things stand.`;
+      }
+      return `Good, this is giving me a clear picture of ${bizName || "your business"}.`;
+    }
+    if (step === 3) {
+      if (!form.hasRevenue) {
+        return "No judgment either way here — pre-revenue or already earning, both are valid starting points.";
+      }
+      if (form.grantAmountRequested > 0) {
+        return `₦${form.grantAmountRequested.toLocaleString()} — got it. Let's make sure the reviewers understand exactly why.`;
+      }
+      return "This section is where the numbers start telling your story — take your time.";
+    }
+    if (step === 4) {
+      if (!form.whyStartBusiness.trim()) {
+        return `This is the part reviewers actually remember, ${firstName}. Your honest reason for starting matters more than polish.`;
+      }
+      if (form.whyStartBusiness.trim().split(/\s+/).length > 12) {
+        return "That's a strong reason — it comes through. Keep going.";
+      }
+      return "A few more reflective questions, then some quick admin ones.";
+    }
+    return "Almost done — just your commitments and a final confirmation left.";
+  }, [step, form.applicantName, form.currentStatus, form.hasPriorBusiness, form.businessName, form.industry, form.businessStage, form.hasRevenue, form.grantAmountRequested, form.whyStartBusiness, firstName, bizName]);
 
   if (submittedCode) {
     return (
@@ -160,13 +393,21 @@ export default function ApplicationForm({ token }: Props) {
 
   return (
     <div className="rounded-card border border-line bg-white p-8 shadow-sm">
-      <div className="mb-8">
+      <div className="mb-6">
         <Stepper steps={STEPS} current={step} />
+      </div>
+
+      <div className="mb-6 flex items-start gap-3 rounded-card border border-brand/20 bg-brand/5 p-4">
+        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-white">
+          <Sparkles size={14} />
+        </div>
+        <p className="text-sm leading-relaxed text-ink">{coachMessage}</p>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {step === 1 && (
           <>
+            <SectionHeading title="Personal Information" />
             <Field label="Full name" required>
               <input
                 className="input"
@@ -176,13 +417,20 @@ export default function ApplicationForm({ token }: Props) {
               />
             </Field>
 
-            <Field label="Email" required>
+            <RadioGroup
+              label="Gender"
+              required
+              options={["Male", "Female", "Prefer not to say"]}
+              value={form.gender}
+              onChange={(v) => update("gender", v)}
+            />
+
+            <Field label="Date of birth" required>
               <input
                 className="input"
-                type="email"
-                value={form.email}
-                onChange={(e) => update("email", e.target.value)}
-                autoComplete="email"
+                type="date"
+                value={form.dateOfBirth}
+                onChange={(e) => update("dateOfBirth", e.target.value)}
               />
             </Field>
 
@@ -195,11 +443,84 @@ export default function ApplicationForm({ token }: Props) {
                 autoComplete="tel"
               />
             </Field>
+
+            <Field label="Email address" required>
+              <input
+                className="input"
+                type="email"
+                value={form.email}
+                onChange={(e) => update("email", e.target.value)}
+                autoComplete="email"
+              />
+            </Field>
+
+            <Field label="State of residence" required>
+              <select
+                className="input"
+                value={form.stateOfResidence}
+                onChange={(e) => update("stateOfResidence", e.target.value)}
+              >
+                <option value="">Select a state</option>
+                {NIGERIA_STATES.map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
+                ))}
+              </select>
+            </Field>
+
+            <Field label="Local Government Area" required>
+              <input className="input" value={form.lga} onChange={(e) => update("lga", e.target.value)} />
+            </Field>
+
+            <Field label="LinkedIn profile (optional)">
+              <input
+                className="input"
+                value={form.linkedin}
+                onChange={(e) => update("linkedin", e.target.value)}
+              />
+            </Field>
+
+            <Field label="Social media handle(s) for your business (optional)">
+              <input
+                className="input"
+                value={form.businessSocialHandle}
+                onChange={(e) => update("businessSocialHandle", e.target.value)}
+              />
+            </Field>
+
+            <SectionHeading title="Entrepreneur Profile" />
+            <RadioGroup
+              label="What best describes your current status?"
+              required
+              options={CURRENT_STATUS_OPTIONS}
+              value={form.currentStatus}
+              onChange={(v) => update("currentStatus", v)}
+            />
+
+            <RadioGroup
+              label="Have you previously started or managed a business before?"
+              required
+              options={["Yes", "No"]}
+              value={form.hasPriorBusiness}
+              onChange={(v) => update("hasPriorBusiness", v)}
+            />
+
+            {form.hasPriorBusiness === "Yes" && (
+              <Field label="Briefly describe your previous business experience" required>
+                <textarea
+                  className="input min-h-[100px]"
+                  value={form.priorBusinessDescription}
+                  onChange={(e) => update("priorBusinessDescription", e.target.value)}
+                />
+              </Field>
+            )}
           </>
         )}
 
         {step === 2 && (
           <>
+            <SectionHeading title="Business Information" />
             <Field label="Business name" required>
               <input
                 className="input"
@@ -208,44 +529,335 @@ export default function ApplicationForm({ token }: Props) {
               />
             </Field>
 
-            <Field label="Business type" required>
-              <select
-                className="input"
-                value={form.businessType}
-                onChange={(e) => update("businessType", e.target.value)}
-              >
-                {BUSINESS_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
+            <Field label="Briefly describe your business" required>
+              <textarea
+                className="input min-h-[100px]"
+                placeholder="What products/services do you provide?"
+                value={form.businessDescription}
+                onChange={(e) => update("businessDescription", e.target.value)}
+              />
+            </Field>
+
+            <Field label="What industry does your business operate in?" required>
+              <select className="input" value={form.industry} onChange={(e) => update("industry", e.target.value)}>
+                <option value="">Select an industry</option>
+                {INDUSTRIES.map((i) => (
+                  <option key={i} value={i}>
+                    {i}
                   </option>
                 ))}
               </select>
             </Field>
 
-            <Field label="Grant amount requested (₦)" required>
+            <RadioGroup
+              label="What category of support are you applying for?"
+              required
+              options={SUPPORT_CATEGORIES}
+              value={form.supportCategory}
+              onChange={(v) => update("supportCategory", v)}
+            />
+
+            <SectionHeading title="Business Stage & Operations" />
+            <RadioGroup
+              label="What stage is your business currently?"
+              required
+              options={BUSINESS_STAGE_OPTIONS}
+              value={form.businessStage}
+              onChange={(v) => update("businessStage", v)}
+            />
+
+            <RadioGroup
+              label="How long has your business been operating?"
+              required
+              options={OPERATING_DURATION_OPTIONS}
+              value={form.operatingDuration}
+              onChange={(v) => update("operatingDuration", v)}
+            />
+
+            <Field label="Date your business was established/launched" required>
+              <input
+                className="input"
+                type="date"
+                value={form.dateEstablished}
+                onChange={(e) => update("dateEstablished", e.target.value)}
+              />
+            </Field>
+
+            <RadioGroup
+              label="Is your business currently registered?"
+              required
+              options={REGISTRATION_STATUS_OPTIONS}
+              value={form.registrationStatus}
+              onChange={(v) => update("registrationStatus", v)}
+            />
+
+            <Field label="CAC registration number (if available)">
+              <input
+                className="input"
+                value={form.cacNumber}
+                onChange={(e) => update("cacNumber", e.target.value)}
+              />
+            </Field>
+
+            <RadioGroup
+              label="Where does your business currently operate?"
+              required
+              options={OPERATING_LOCATION_OPTIONS}
+              value={form.operatingLocation}
+              onChange={(v) => update("operatingLocation", v)}
+            />
+
+            <RadioGroup
+              label="How many people currently work in your business?"
+              required
+              options={EMPLOYEE_COUNT_OPTIONS}
+              value={form.employeeCount}
+              onChange={(v) => update("employeeCount", v)}
+            />
+          </>
+        )}
+
+        {step === 3 && (
+          <>
+            <SectionHeading title="Revenue & Business Performance" />
+            <RadioGroup
+              label="Has your business started generating revenue?"
+              required
+              options={["Yes", "No"]}
+              value={form.hasRevenue}
+              onChange={(v) => update("hasRevenue", v)}
+            />
+
+            {form.hasRevenue === "Yes" && (
+              <RadioGroup
+                label="What is your average monthly revenue?"
+                required
+                options={AVG_MONTHLY_REVENUE_OPTIONS}
+                value={form.avgMonthlyRevenue}
+                onChange={(v) => update("avgMonthlyRevenue", v)}
+              />
+            )}
+
+            <Field label="What was your business revenue in the last 12 months?" required>
+              <input
+                className="input"
+                value={form.revenueLast12Months}
+                onChange={(e) => update("revenueLast12Months", e.target.value)}
+              />
+            </Field>
+
+            <Field label="Who are your main customers?" required>
+              <textarea
+                className="input min-h-[90px]"
+                value={form.mainCustomers}
+                onChange={(e) => update("mainCustomers", e.target.value)}
+              />
+            </Field>
+
+            <CheckboxGroup
+              label="How do customers currently find your business?"
+              required
+              options={CUSTOMER_CHANNEL_OPTIONS}
+              values={form.customerAcquisitionChannels}
+              onToggle={(v) => toggleArrayValue("customerAcquisitionChannels", v)}
+            />
+
+            <SectionHeading title="Funding Need & Business Needs" />
+            <Field label="How much funding are you requesting (₦)?" required>
               <input
                 className="input"
                 type="number"
                 min={0}
-                value={form.grantAmountRequested}
-                onChange={(e) => update("grantAmountRequested", e.target.value)}
+                value={form.grantAmountRequested || ""}
+                onChange={(e) => update("grantAmountRequested", Number(e.target.value))}
+              />
+            </Field>
+
+            <CheckboxGroup
+              label="What will you use the grant funding for?"
+              required
+              options={FUNDING_USE_OPTIONS}
+              values={form.fundingUse}
+              onToggle={(v) => toggleArrayValue("fundingUse", v)}
+            />
+
+            <Field label="Explain specifically how this funding will help your business grow" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.fundingGrowthExplanation}
+                onChange={(e) => update("fundingGrowthExplanation", e.target.value)}
+              />
+            </Field>
+
+            <Field label="What is the biggest challenge currently affecting your business growth?" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.biggestChallenge}
+                onChange={(e) => update("biggestChallenge", e.target.value)}
               />
             </Field>
           </>
         )}
 
-        {step === 3 && (
-          <div className="space-y-3">
-            <ReviewRow label="Full name" value={form.applicantName} />
-            <ReviewRow label="Email" value={form.email} />
-            <ReviewRow label="Phone" value={form.phone} />
-            <ReviewRow label="Business name" value={form.businessName} />
-            <ReviewRow label="Business type" value={form.businessType} />
-            <ReviewRow
-              label="Grant amount"
-              value={`₦${Number(form.grantAmountRequested || 0).toLocaleString()}`}
+        {step === 4 && (
+          <>
+            <SectionHeading title="Entrepreneur Vision & Impact" />
+            <Field label={`Why did you start ${bizName || "this business"}?`} required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.whyStartBusiness}
+                onChange={(e) => update("whyStartBusiness", e.target.value)}
+              />
+              {form.whyStartBusiness.trim().split(/\s+/).length > 12 && (
+                <p className="mt-1.5 text-xs text-brand">That comes through clearly — thank you for sharing it.</p>
+              )}
+            </Field>
+
+            <Field label="What problem does your business solve?" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.problemSolved}
+                onChange={(e) => update("problemSolved", e.target.value)}
+              />
+            </Field>
+
+            <Field label="What impact do you hope to create through your business?" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.desiredImpact}
+                onChange={(e) => update("desiredImpact", e.target.value)}
+              />
+            </Field>
+
+            <Field label={`Where do you see ${bizName || "your business"} in the next 5 years?`} required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.fiveYearVision}
+                onChange={(e) => update("fiveYearVision", e.target.value)}
+              />
+            </Field>
+
+            <RadioGroup
+              label="How many jobs do you hope to create through your business?"
+              required
+              options={JOBS_TO_CREATE_OPTIONS}
+              value={form.jobsToCreate}
+              onChange={(v) => update("jobsToCreate", v)}
             />
-          </div>
+
+            <SectionHeading title="Grant Application Questions" />
+            <Field label="Why are you applying for the Globe Tech SME Grant & Business Support Program?" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.whyApplying}
+                onChange={(e) => update("whyApplying", e.target.value)}
+              />
+            </Field>
+
+            <Field label="Why should your business be selected for this grant opportunity?" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.whySelected}
+                onChange={(e) => update("whySelected", e.target.value)}
+              />
+            </Field>
+
+            <Field label="What makes your business different from others in your industry?" required>
+              <textarea
+                className="input min-h-[100px]"
+                value={form.whatMakesDifferent}
+                onChange={(e) => update("whatMakesDifferent", e.target.value)}
+              />
+            </Field>
+
+            <RadioGroup
+              label="Have you applied for a grant opportunity before?"
+              required
+              options={["Yes", "No"]}
+              value={form.appliedBefore}
+              onChange={(v) => update("appliedBefore", v)}
+            />
+
+            {form.appliedBefore === "Yes" && (
+              <>
+                <RadioGroup
+                  label="If yes, did you receive funding?"
+                  required
+                  options={["Yes", "No"]}
+                  value={form.receivedFundingBefore}
+                  onChange={(v) => update("receivedFundingBefore", v)}
+                />
+                <Field label="Please share details">
+                  <textarea
+                    className="input min-h-[80px]"
+                    value={form.priorFundingDetails}
+                    onChange={(e) => update("priorFundingDetails", e.target.value)}
+                  />
+                </Field>
+              </>
+            )}
+          </>
+        )}
+
+        {step === 5 && (
+          <>
+            <SectionHeading title="Business Academy Commitment" />
+            <RadioGroup
+              label="Are you willing to participate in the Globe Tech Business Academy training sessions if selected?"
+              required
+              options={["Yes", "No"]}
+              value={form.willingAcademy}
+              onChange={(v) => update("willingAcademy", v)}
+            />
+
+            <RadioGroup
+              label="Are you willing to commit time to mentorship sessions, assignments, and business improvement activities?"
+              required
+              options={["Yes", "No"]}
+              value={form.willingMentorship}
+              onChange={(v) => update("willingMentorship", v)}
+            />
+
+            <CheckboxGroup
+              label="What areas of business development would you like to improve?"
+              required
+              options={IMPROVEMENT_AREA_OPTIONS}
+              values={form.improvementAreas}
+              onToggle={(v) => toggleArrayValue("improvementAreas", v)}
+            />
+
+            <SectionHeading title="Referral Information" />
+            <RadioGroup
+              label="How did you hear about the Globe Tech SME Grant & Business Support Program?"
+              required
+              options={HOW_HEARD_OPTIONS}
+              value={form.howHeard}
+              onChange={(v) => update("howHeard", v)}
+            />
+
+            <Field label="Do you belong to any entrepreneur/community/business network? (optional)">
+              <textarea
+                className="input min-h-[80px]"
+                value={form.entrepreneurNetwork}
+                onChange={(e) => update("entrepreneurNetwork", e.target.value)}
+              />
+            </Field>
+
+            <SectionHeading title="Final Declaration" />
+            <label className="flex items-start gap-3 rounded-card border border-line bg-paper p-4 text-sm text-ink">
+              <input
+                type="checkbox"
+                className="mt-0.5 h-4 w-4 shrink-0"
+                checked={form.declarationAgreed}
+                onChange={(e) => update("declarationAgreed", e.target.checked)}
+              />
+              <span>
+                I confirm that the information provided in this application is accurate and
+                complete. I understand that submission of this application does not guarantee
+                funding and that selected applicants may undergo further evaluation.
+              </span>
+            </label>
+          </>
         )}
 
         {/* Honeypot — visually hidden, never in the tab order, present on every step */}
@@ -256,8 +868,8 @@ export default function ApplicationForm({ token }: Props) {
             name="website"
             tabIndex={-1}
             autoComplete="off"
-            value={form.website}
-            onChange={(e) => update("website", e.target.value)}
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
           />
         </div>
 
@@ -273,12 +885,12 @@ export default function ApplicationForm({ token }: Props) {
               Back
             </button>
           )}
-          {step < 3 && (
+          {step < 5 && (
             <button type="button" onClick={goNext} className="btn-primary flex-1">
               Continue
             </button>
           )}
-          {step === 3 && (
+          {step === 5 && (
             <button type="submit" disabled={isPending} className="btn-primary flex-1">
               {isPending ? "Submitting…" : "Submit application"}
             </button>
@@ -286,6 +898,14 @@ export default function ApplicationForm({ token }: Props) {
         </div>
       </form>
     </div>
+  );
+}
+
+function SectionHeading({ title }: { title: string }) {
+  return (
+    <h3 className="!mt-8 border-b border-line pb-2 font-display text-sm font-semibold uppercase tracking-wide text-slate first:!mt-0">
+      {title}
+    </h3>
   );
 }
 
@@ -308,11 +928,82 @@ function Field({
   );
 }
 
-function ReviewRow({ label, value }: { label: string; value: string }) {
+function RadioGroup({
+  label,
+  options,
+  value,
+  onChange,
+  required,
+}: {
+  label: string;
+  options: string[];
+  value: string;
+  onChange: (v: string) => void;
+  required?: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between border-b border-line py-2 text-sm">
-      <span className="text-slate">{label}</span>
-      <span className="font-medium text-ink">{value || "—"}</span>
-    </div>
+    <fieldset>
+      <legend className="mb-2 text-sm font-medium text-ink">
+        {label} {required && <span className="text-gold">*</span>}
+      </legend>
+      <div className="space-y-2">
+        {options.map((opt) => (
+          <label
+            key={opt}
+            className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+              value === opt ? "border-brand bg-brand/5 text-ink" : "border-line text-ink hover:bg-paper"
+            }`}
+          >
+            <input
+              type="radio"
+              className="h-4 w-4 shrink-0"
+              checked={value === opt}
+              onChange={() => onChange(opt)}
+            />
+            {opt}
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  );
+}
+
+function CheckboxGroup({
+  label,
+  options,
+  values,
+  onToggle,
+  required,
+}: {
+  label: string;
+  options: string[];
+  values: string[];
+  onToggle: (v: string) => void;
+  required?: boolean;
+}) {
+  return (
+    <fieldset>
+      <legend className="mb-2 text-sm font-medium text-ink">
+        {label} {required && <span className="text-gold">*</span>}
+      </legend>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {options.map((opt) => (
+          <label
+            key={opt}
+            className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
+              values.includes(opt) ? "border-brand bg-brand/5 text-ink" : "border-line text-ink hover:bg-paper"
+            }`}
+          >
+            <input
+              type="checkbox"
+              className="h-4 w-4 shrink-0"
+              checked={values.includes(opt)}
+              onChange={() => onToggle(opt)}
+            />
+            {opt}
+          </label>
+        ))}
+      </div>
+    </fieldset>
   );
 }

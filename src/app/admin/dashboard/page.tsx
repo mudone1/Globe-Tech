@@ -89,11 +89,53 @@ function Dashboard() {
     const headers = [
       "applicationId",
       "applicantName",
-      "email",
+      "gender",
+      "dateOfBirth",
       "phone",
+      "email",
+      "stateOfResidence",
+      "lga",
+      "linkedin",
+      "businessSocialHandle",
+      "currentStatus",
+      "hasPriorBusiness",
+      "priorBusinessDescription",
       "businessName",
-      "businessType",
+      "businessDescription",
+      "industry",
+      "supportCategory",
+      "businessStage",
+      "operatingDuration",
+      "dateEstablished",
+      "registrationStatus",
+      "cacNumber",
+      "operatingLocation",
+      "employeeCount",
+      "hasRevenue",
+      "avgMonthlyRevenue",
+      "revenueLast12Months",
+      "mainCustomers",
+      "customerAcquisitionChannels",
       "grantAmountRequested",
+      "fundingUse",
+      "fundingGrowthExplanation",
+      "biggestChallenge",
+      "whyStartBusiness",
+      "problemSolved",
+      "desiredImpact",
+      "fiveYearVision",
+      "jobsToCreate",
+      "whyApplying",
+      "whySelected",
+      "whatMakesDifferent",
+      "appliedBefore",
+      "receivedFundingBefore",
+      "priorFundingDetails",
+      "willingAcademy",
+      "willingMentorship",
+      "improvementAreas",
+      "howHeard",
+      "entrepreneurNetwork",
       "referredBy",
       "status",
       "createdAt",
@@ -102,7 +144,11 @@ function Dashboard() {
       headers.join(","),
       ...apps.map((a) =>
         headers
-          .map((h) => `"${String((a as any)[h] ?? "").replace(/"/g, '""')}"`)
+          .map((h) => {
+            const raw = (a as any)[h];
+            const cell = Array.isArray(raw) ? raw.join("; ") : raw ?? "";
+            return `"${String(cell).replace(/"/g, '""')}"`;
+          })
           .join(",")
       ),
     ];
