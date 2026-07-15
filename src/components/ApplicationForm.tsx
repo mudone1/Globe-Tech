@@ -113,9 +113,22 @@ function filled(value: string | number | boolean | string[] | undefined): boolea
 
 /** Reveals its children with a soft fade/slide-in once `show` becomes true, so each
  * step feels like one question leading to the next rather than a wall of fields. */
-function Reveal({ show, children }: { show: boolean; children: React.ReactNode }) {
+function Reveal({
+  show,
+  children,
+  delay = 0,
+}: {
+  show: boolean;
+  children: React.ReactNode;
+  /** Optional stagger, in seconds, for fields that appear together (e.g. two optional fields at once). */
+  delay?: number;
+}) {
   if (!show) return null;
-  return <div className="field-reveal">{children}</div>;
+  return (
+    <div className="field-reveal" style={delay ? { animationDelay: `${delay}s` } : undefined}>
+      {children}
+    </div>
+  );
 }
 
 interface Props {
@@ -420,6 +433,7 @@ export default function ApplicationForm({ token }: Props) {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
+        <div key={step} className="step-enter space-y-5">
         {step === 1 && (() => {
           const showGender = filled(form.applicantName);
           const showDob = showGender && filled(form.gender);
@@ -521,7 +535,7 @@ export default function ApplicationForm({ token }: Props) {
                 </Field>
               </Reveal>
 
-              <Reveal show={showOptionalContacts}>
+              <Reveal show={showOptionalContacts} delay={0.08}>
                 <Field label="Social media handle(s) for your business (optional)">
                   <input
                     className="input"
@@ -679,7 +693,7 @@ export default function ApplicationForm({ token }: Props) {
                 </Field>
               </Reveal>
 
-              <Reveal show={showAfterRegistration}>
+              <Reveal show={showAfterRegistration} delay={0.08}>
                 <RadioGroup
                   label="Where does your business currently operate?"
                   required
@@ -1019,6 +1033,7 @@ export default function ApplicationForm({ token }: Props) {
             </>
           );
         })()}
+        </div>
 
         {/* Honeypot — visually hidden, never in the tab order, present on every step */}
         <div aria-hidden="true" className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden">
