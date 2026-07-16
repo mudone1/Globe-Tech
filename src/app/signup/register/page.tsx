@@ -141,11 +141,9 @@ function RegisterForm() {
     <AuthLayout>
       <p className="font-mono text-xs uppercase tracking-widest text-gold">{config.tier}</p>
       <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Sign up as {config.title}</h1>
-      <p className="mt-1 text-sm text-slate">
-        {config.referrerTier
-          ? `You'll need a staff code from an active ${config.referrerTier}.`
-          : "No referrer code needed — your account will need admin approval before you can log in."}
-      </p>
+      {config.referrerTier && (
+        <p className="mt-1 text-sm text-slate">You&rsquo;ll need a staff code from an active {config.referrerTier}.</p>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-6 space-y-4">
         <label className="block">
