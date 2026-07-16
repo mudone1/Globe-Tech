@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { resolveStaffIdFromToken, generateFirstBankReferralCode } from "@/lib/referral";
-import type { ApplicationRecord } from "@/lib/types";
+import type { ApplicationRecord, VisitRecord } from "@/lib/types";
 
 const REF_COOKIE = "gt_ref_token";
 
@@ -12,6 +12,11 @@ const REF_COOKIE = "gt_ref_token";
  * short-lived cookie. This is the "cookie fallback" from the architecture
  * table — it survives a refresh even if the applicant loses the URL.
  * The cookie stores the opaque token only, never the resolved staffId.
+ *
+ * Also logs a lightweight visit record so the admin analytics dashboard can
+ * show a real "link visited → application submitted" conversion rate, not
+ * just submission counts. Best-effort — a failed write here never blocks
+ * the applicant from continuing.
  */
 export async function recordVisit(token: string) {
   const store = await cookies();
@@ -22,6 +27,14 @@ export async function recordVisit(token: string) {
     maxAge: 60 * 60 * 24 * 7, // 7 days — long enough to cover a slow applicant, short enough to stay "short-lived"
     path: "/",
   });
+
+  try {
+    const staffId = (await resolveStaffIdFromToken(token)) ?? "unassigned";
+    const record: VisitRecord = { token, staffId, visitedAt: new Date().toISOString() };
+    await getAdminDb().collection("visits").add(record);
+  } catch (err) {
+    console.error("recordVisit: failed to log visit (non-fatal):", err);
+  }
 }
 
 // Mirrors every question in Grant Application Questions.docx (Q1–Q47).

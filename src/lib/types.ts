@@ -115,3 +115,11 @@ export interface EmailLogRecord {
   opened: boolean;
   clicked: boolean;
 }
+
+// One row per /apply/[token] page load — powers the referral funnel
+// (link visits vs. actual submissions) on the analytics dashboard.
+export interface VisitRecord {
+  token: string;
+  staffId: string; // resolved staffId, or "unassigned" if the token didn't resolve
+  visitedAt: string; // ISO timestamp
+}

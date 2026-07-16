@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState, useTransition } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
+import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
-import BrandMark from "@/components/BrandMark";
 import { runStaffSync } from "@/app/admin/staff/actions";
 import type { StaffRecord, LinkTokenRecord } from "@/lib/types";
 
@@ -16,7 +16,9 @@ interface Row extends StaffRecord {
 export default function StaffPage() {
   return (
     <AdminGate>
-      <StaffTable />
+      <AdminShell>
+        <StaffTable />
+      </AdminShell>
     </AdminGate>
   );
 }
@@ -92,11 +94,10 @@ function StaffTable() {
   );
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-10">
+    <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <BrandMark size="sm" href="/admin/staff" />
-          <p className="mt-4 font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
+          <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Staff referral links</h1>
           <p className="mt-1 text-sm text-slate">
             Synced from the onboarding sheet. Each link is a token — the real staffId is never
@@ -175,6 +176,6 @@ function StaffTable() {
           </tbody>
         </table>
       </div>
-    </main>
+    </div>
   );
 }

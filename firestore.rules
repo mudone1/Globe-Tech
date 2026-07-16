@@ -54,6 +54,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // visits — one row per /apply/[token] page load, written by the Admin SDK
+    // (recordVisit server action) to power the referral funnel on the
+    // analytics dashboard. Admin-only read, never client-writable.
+    match /visits/{visitId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // admins allowlist — managed by hand in the console, never via the app.
     match /admins/{uid} {
       allow read: if isSignedIn();
