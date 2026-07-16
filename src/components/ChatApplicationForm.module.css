@@ -1,20 +1,20 @@
 .page {
-  --bg: #0f1512;
-  --surface: #182420;
-  --surface-2: #1e2c27;
-  --line: rgba(245, 241, 232, 0.09);
-  --text: #f5f1e8;
-  --muted: #9ca79e;
-  --gold: #e8a33d;
-  --gold-dim: rgba(232, 163, 61, 0.16);
-  --teal: #3fa796;
-  --teal-dim: rgba(63, 167, 150, 0.18);
-  --danger: #e07a5f;
+  --bg: #051b0f;
+  --surface: #0d2c1a;
+  --surface-2: #123821;
+  --line: rgba(245, 248, 245, 0.1);
+  --text: #f5f8f5;
+  --muted: #86ac93;
+  --gold: #c8952a;
+  --gold-dim: rgba(200, 149, 42, 0.18);
+  --teal: #0e7a3a;
+  --teal-dim: rgba(14, 122, 58, 0.2);
+  --danger: #b3392c;
 
   min-height: 100dvh;
   background:
-    radial-gradient(1100px 600px at 15% -10%, rgba(63, 167, 150, 0.1), transparent 60%),
-    radial-gradient(900px 500px at 100% 0%, rgba(232, 163, 61, 0.08), transparent 55%),
+    radial-gradient(1100px 600px at 15% -10%, rgba(14, 122, 58, 0.14), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(200, 149, 42, 0.09), transparent 55%),
     var(--bg);
   color: var(--text);
   font-family: "Public Sans", -apple-system, sans-serif;
@@ -116,6 +116,24 @@
   gap: 16px;
 }
 
+.loadPrev {
+  align-self: center;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-family: "Public Sans", sans-serif;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 8px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+.loadPrev:hover {
+  color: var(--text);
+  border-color: var(--gold);
+}
+
 .row {
   display: flex;
   gap: 10px;
@@ -180,8 +198,8 @@
   font-family: "Public Sans", sans-serif;
 }
 .userBubble {
-  background: linear-gradient(155deg, var(--teal), #2d8577);
-  color: #08211c;
+  background: linear-gradient(155deg, var(--teal), #054A26);
+  color: #eaf5ee;
   font-weight: 600;
   border-top-right-radius: 5px;
 }
@@ -466,7 +484,7 @@ textarea.field {
   height: 56px;
   border-radius: 16px;
   margin: 0 auto 18px;
-  background: linear-gradient(150deg, var(--teal), #2d8577);
+  background: linear-gradient(150deg, var(--teal), #054A26);
   display: flex;
   align-items: center;
   justify-content: center;

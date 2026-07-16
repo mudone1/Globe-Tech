@@ -278,8 +278,8 @@ const QUESTIONS: Question[] = [
     showIf: (a) => a.hasPriorBusiness === "Yes",
     question: () => "Nice — tell me a bit about that previous business." },
 
-  { id: "businessName", type: "text", label: "Business name", eyebrow: "Business Information",
-    question: () => "Let's talk business — what's it called?" },
+  { id: "businessName", type: "text", label: "Business name", eyebrow: "Business Information", required: true,
+    question: () => "Let's talk about your business — what's your business name again?" },
   { id: "businessDescription", type: "textarea", label: "Business description", placeholder: "What products/services do you provide?",
     question: (a) => `${a.businessName.trim() || "Nice name"} — what does it actually do?` },
   { id: "industry", type: "select", label: "Industry", options: INDUSTRIES,
@@ -295,8 +295,8 @@ const QUESTIONS: Question[] = [
     question: () => "When was it established or launched?" },
   { id: "registrationStatus", type: "quickreply", label: "Registration status", options: REGISTRATION_STATUS_OPTIONS,
     question: () => "Is your business currently registered with the CAC?" },
-  { id: "cacNumber", type: "text", label: "CAC registration number", required: (a) => a.registrationStatus.startsWith("Yes"),
-    question: (a) => (a.registrationStatus.startsWith("Yes")
+  { id: "cacNumber", type: "text", label: "CAC registration number", required: (a) => a.registrationStatus === "Yes, my CAC certificate is available",
+    question: (a) => (a.registrationStatus === "Yes, my CAC certificate is available"
       ? "Great — what's your CAC registration number?"
       : "Have a CAC registration number yet? Add it here, or skip for now.") },
   { id: "operatingLocation", type: "quickreply", label: "Operating location", options: OPERATING_LOCATION_OPTIONS,
@@ -430,6 +430,15 @@ interface TranscriptItem {
 
 type Stage = "welcome" | "questions" | "summary" | "done";
 
+interface SavedDraft {
+  form: FormState;
+  transcript: TranscriptItem[];
+  qIndex: number;
+  stage: Stage;
+  collapseIndex: number | null;
+  savedAt: number;
+}
+
 interface Props {
   token: string;
   referralResolved: boolean;
@@ -448,7 +457,12 @@ export default function ApplicationForm({ token }: Props) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [referralCode, setReferralCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [collapseIndex, setCollapseIndex] = useState<number | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [draft, setDraft] = useState<SavedDraft | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const transcriptLenRef = useRef(0);
+  const draftKey = `gt_grant_draft_${token}`;
 
   useEffect(() => {
     recordVisit(token).catch(() => {
@@ -461,15 +475,56 @@ export default function ApplicationForm({ token }: Props) {
     }
   }, [token]);
 
+  // Look for a saved draft on this device so the applicant can pick up where they left off.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      if (raw) {
+        const parsed: SavedDraft = JSON.parse(raw);
+        if (parsed && parsed.transcript?.length > 0 && parsed.stage !== "done") {
+          setDraft(parsed);
+        }
+      }
+    } catch {
+      /* corrupt or unavailable storage — just start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave progress to this device on every change, so a reload never loses answers.
+  useEffect(() => {
+    if (stage === "welcome" && transcript.length === 0) return;
+    try {
+      if (stage === "done") {
+        window.localStorage.removeItem(draftKey);
+      } else {
+        const payload: SavedDraft = { form, transcript, qIndex, stage, collapseIndex, savedAt: Date.now() };
+        window.localStorage.setItem(draftKey, JSON.stringify(payload));
+      }
+    } catch {
+      /* localStorage may be unavailable — the session still works, it just won't resume after reload */
+    }
+  }, [form, transcript, qIndex, stage, collapseIndex, draftKey]);
+
+  useEffect(() => {
+    transcriptLenRef.current = transcript.length;
+  }, [transcript]);
+
   useEffect(() => {
     threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
-  }, [transcript, typing]);
+  }, [transcript, typing, qIndex, stage, expanded]);
 
   function askQuestion(idx: number, nextForm: FormState, nextVisible: Question[]) {
     const q = nextVisible[idx];
     setTyping(true);
     setTimeout(() => {
       setTyping(false);
+      // Starting a new section collapses everything before it, keeping the thread tidy —
+      // the applicant can still expand it via the "Load previous conversation" pill.
+      if (q.eyebrow && transcriptLenRef.current > 0) {
+        setCollapseIndex(transcriptLenRef.current);
+        setExpanded(false);
+      }
       setTranscript((t) => [...t, { who: "bot", text: q.question(nextForm) + (resolveRequired(q, nextForm) ? "" : " (optional)"), eyebrow: q.eyebrow }]);
     }, 480 + Math.random() * 320);
   }
@@ -480,6 +535,28 @@ export default function ApplicationForm({ token }: Props) {
     setStage("questions");
     setQIndex(0);
     askQuestion(0, form, firstVisible);
+  }
+
+  function resume() {
+    if (!draft) return;
+    setForm(draft.form);
+    setTranscript(draft.transcript);
+    setQIndex(draft.qIndex);
+    setCollapseIndex(draft.collapseIndex);
+    setExpanded(false);
+    setVisible(QUESTIONS.filter((q) => !q.showIf || q.showIf(draft.form)));
+    setStage(draft.stage);
+    setDraft(null);
+  }
+
+  function startFresh() {
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    setDraft(null);
+    start();
   }
 
   function submitAnswer(value: FieldValue, display: string) {
@@ -513,6 +590,7 @@ export default function ApplicationForm({ token }: Props) {
   }
 
   function goBack() {
+    setExpanded(true);
     if (stage === "summary") {
       setTranscript((t) => t.slice(0, -1));
       setStage("questions");
@@ -523,6 +601,7 @@ export default function ApplicationForm({ token }: Props) {
         setStage("welcome");
         setTranscript([]);
         setQIndex(0);
+        setCollapseIndex(null);
         return;
       }
       setTranscript((t) => t.slice(0, -2));
@@ -589,16 +668,34 @@ export default function ApplicationForm({ token }: Props) {
         <div className={styles.thread} ref={threadRef}>
           {stage === "welcome" && (
             <div className={styles.welcomeHero}>
-              <h1>Hi — I&rsquo;m here to walk you through your SME Grant application.</h1>
-              <p>
-                No long form, no blank boxes staring back at you. Just a few questions, one at a
-                time, like we&rsquo;re actually talking. Take your time.
-              </p>
+              {draft ? (
+                <>
+                  <h1>Welcome back, {fname(draft.form)} — we can continue from where you stopped.</h1>
+                  <p>
+                    Your progress was saved on this device. Pick up right where you left off, or
+                    start over if you&rsquo;d rather begin fresh.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1>Hi — I&rsquo;m here to walk you through your SME Grant application.</h1>
+                  <p>
+                    No long form, no blank boxes staring back at you. Just a few questions, one at
+                    a time, like we&rsquo;re actually talking. Take your time.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
+          {stage !== "welcome" && collapseIndex !== null && !expanded && collapseIndex > 0 && (
+            <button className={styles.loadPrev} onClick={() => setExpanded(true)}>
+              ↑ Load previous conversation ({collapseIndex} message{collapseIndex === 1 ? "" : "s"})
+            </button>
+          )}
+
           {stage !== "welcome" &&
-            transcript.map((item, i) => (
+            (expanded || collapseIndex === null ? transcript : transcript.slice(collapseIndex)).map((item, i) => (
               <div key={i} className={`${styles.row} ${item.who === "bot" ? styles.rowBot : styles.rowUser}`}>
                 {item.who === "bot" && <div className={styles.avatar}>GT</div>}
                 <div className={`${styles.bubble} ${item.who === "bot" ? styles.botBubble : styles.userBubble}`}>
@@ -665,9 +762,20 @@ export default function ApplicationForm({ token }: Props) {
           {stage === "welcome" && (
             <div className={styles.composerInner}>
               <div className={styles.rowActions}>
-                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={start}>
-                  Let&rsquo;s go →
-                </button>
+                {draft ? (
+                  <>
+                    <button className={`${styles.btn} ${styles.btnGhost}`} onClick={startFresh}>
+                      Start over
+                    </button>
+                    <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={resume}>
+                      Continue →
+                    </button>
+                  </>
+                ) : (
+                  <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={start}>
+                    Let&rsquo;s go →
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -690,6 +798,8 @@ export default function ApplicationForm({ token }: Props) {
                 <button
                   className={`${styles.btn} ${styles.btnGhost}`}
                   onClick={() => {
+                    setExpanded(true);
+                    setCollapseIndex(null);
                     setQIndex(0);
                     setVisible(QUESTIONS.filter((q) => !q.showIf || q.showIf(form)));
                     setStage("questions");
