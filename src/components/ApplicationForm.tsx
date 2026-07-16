@@ -131,6 +131,34 @@ function Reveal({
   );
 }
 
+/** A small chat-style message from the "assistant" side of the form, used to bridge
+ * between one answered field and the next question — makes the flow feel like a
+ * conversation rather than a form draining fields off a list. */
+function ChatBubble({ text }: { text: string }) {
+  return (
+    <div className="flex items-start gap-2.5">
+      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
+        <Sparkles size={12} />
+      </div>
+      <p className="text-sm leading-relaxed text-ink/80">{text}</p>
+    </div>
+  );
+}
+
+/** Reveals a short chat acknowledgment first, then the next question a beat behind it,
+ * so answering a field feels like getting a reply before the next question drops. */
+function AckReveal({ show, ack, children }: { show: boolean; ack: string; children: React.ReactNode }) {
+  if (!show) return null;
+  return (
+    <div className="field-reveal space-y-3">
+      <ChatBubble text={ack} />
+      <div className="field-reveal" style={{ animationDelay: "0.22s" }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 interface Props {
   token: string;
   referralResolved: boolean;
@@ -457,7 +485,7 @@ export default function ApplicationForm({ token }: Props) {
                 />
               </Field>
 
-              <Reveal show={showGender}>
+              <AckReveal show={showGender} ack={`Hi ${firstName || "there"}! Hope you're doing well today — just a bit more about you before we get into the business side.`}>
                 <RadioGroup
                   label="Gender"
                   required
@@ -465,9 +493,9 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.gender}
                   onChange={(v) => update("gender", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showDob}>
+              <AckReveal show={showDob} ack="Thanks — noted.">
                 <Field label="Date of birth" required>
                   <input
                     className="input"
@@ -476,9 +504,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("dateOfBirth", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showPhone}>
+              <AckReveal show={showPhone} ack="Got it.">
                 <Field label="Phone number" required>
                   <input
                     className="input"
@@ -488,9 +516,9 @@ export default function ApplicationForm({ token }: Props) {
                     autoComplete="tel"
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showEmail}>
+              <AckReveal show={showEmail} ack="Perfect.">
                 <Field label="Email address" required>
                   <input
                     className="input"
@@ -500,9 +528,9 @@ export default function ApplicationForm({ token }: Props) {
                     autoComplete="email"
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showState}>
+              <AckReveal show={showState} ack="Great, almost done with your bio.">
                 <Field label="State of residence" required>
                   <select
                     className="input"
@@ -517,15 +545,15 @@ export default function ApplicationForm({ token }: Props) {
                     ))}
                   </select>
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showLga}>
+              <AckReveal show={showLga} ack="Nice — just need your LGA to pinpoint that.">
                 <Field label="Local Government Area" required>
                   <input className="input" value={form.lga} onChange={(e) => update("lga", e.target.value)} />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showOptionalContacts}>
+              <AckReveal show={showOptionalContacts} ack="That's your bio sorted. A couple of optional links, if you have them.">
                 <Field label="LinkedIn profile (optional)">
                   <input
                     className="input"
@@ -533,9 +561,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("linkedin", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showOptionalContacts} delay={0.08}>
+              <Reveal show={showOptionalContacts} delay={0.3}>
                 <Field label="Social media handle(s) for your business (optional)">
                   <input
                     className="input"
@@ -545,18 +573,20 @@ export default function ApplicationForm({ token }: Props) {
                 </Field>
               </Reveal>
 
-              <Reveal show={showEntrepreneurProfile}>
-                <SectionHeading title="Entrepreneur Profile" />
-                <RadioGroup
-                  label="What best describes your current status?"
-                  required
-                  options={CURRENT_STATUS_OPTIONS}
-                  value={form.currentStatus}
-                  onChange={(v) => update("currentStatus", v)}
-                />
-              </Reveal>
+              <AckReveal show={showEntrepreneurProfile} ack="Now let's talk about you as an entrepreneur.">
+                <>
+                  <SectionHeading title="Entrepreneur Profile" />
+                  <RadioGroup
+                    label="What best describes your current status?"
+                    required
+                    options={CURRENT_STATUS_OPTIONS}
+                    value={form.currentStatus}
+                    onChange={(v) => update("currentStatus", v)}
+                  />
+                </>
+              </AckReveal>
 
-              <Reveal show={showPriorBusiness}>
+              <AckReveal show={showPriorBusiness} ack="Good to know.">
                 <RadioGroup
                   label="Have you previously started or managed a business before?"
                   required
@@ -564,10 +594,10 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.hasPriorBusiness}
                   onChange={(v) => update("hasPriorBusiness", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
               {showPriorBusiness && form.hasPriorBusiness === "Yes" && (
-                <Reveal show={true}>
+                <AckReveal show={true} ack="Nice — tell me a bit more about that.">
                   <Field label="Briefly describe your previous business experience" required>
                     <textarea
                       className="input min-h-[100px]"
@@ -575,7 +605,7 @@ export default function ApplicationForm({ token }: Props) {
                       onChange={(e) => update("priorBusinessDescription", e.target.value)}
                     />
                   </Field>
-                </Reveal>
+                </AckReveal>
               )}
             </>
           );
@@ -603,7 +633,7 @@ export default function ApplicationForm({ token }: Props) {
                 />
               </Field>
 
-              <Reveal show={showDescription}>
+              <AckReveal show={showDescription} ack={`${bizName || "That name"} — nice. What does it actually do?`}>
                 <Field label="Briefly describe your business" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -612,9 +642,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("businessDescription", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showIndustry}>
+              <AckReveal show={showIndustry} ack="Got it, that gives me a clear picture.">
                 <Field label="What industry does your business operate in?" required>
                   <select
                     className="input"
@@ -629,9 +659,9 @@ export default function ApplicationForm({ token }: Props) {
                     ))}
                   </select>
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showSupportCategory}>
+              <AckReveal show={showSupportCategory} ack="Makes sense.">
                 <RadioGroup
                   label="What category of support are you applying for?"
                   required
@@ -639,20 +669,22 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.supportCategory}
                   onChange={(v) => update("supportCategory", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showStage}>
-                <SectionHeading title="Business Stage & Operations" />
-                <RadioGroup
-                  label="What stage is your business currently?"
-                  required
-                  options={BUSINESS_STAGE_OPTIONS}
-                  value={form.businessStage}
-                  onChange={(v) => update("businessStage", v)}
-                />
-              </Reveal>
+              <AckReveal show={showStage} ack="Good — now let's talk about where things stand operationally.">
+                <>
+                  <SectionHeading title="Business Stage & Operations" />
+                  <RadioGroup
+                    label="What stage is your business currently?"
+                    required
+                    options={BUSINESS_STAGE_OPTIONS}
+                    value={form.businessStage}
+                    onChange={(v) => update("businessStage", v)}
+                  />
+                </>
+              </AckReveal>
 
-              <Reveal show={showDuration}>
+              <AckReveal show={showDuration} ack="Noted.">
                 <RadioGroup
                   label="How long has your business been operating?"
                   required
@@ -660,9 +692,9 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.operatingDuration}
                   onChange={(v) => update("operatingDuration", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showDateEstablished}>
+              <AckReveal show={showDateEstablished} ack="Thanks.">
                 <Field label="Date your business was established/launched" required>
                   <input
                     className="input"
@@ -671,9 +703,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("dateEstablished", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showRegistrationStatus}>
+              <AckReveal show={showRegistrationStatus} ack="Okay.">
                 <RadioGroup
                   label="Is your business currently registered?"
                   required
@@ -681,9 +713,9 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.registrationStatus}
                   onChange={(v) => update("registrationStatus", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showAfterRegistration}>
+              <AckReveal show={showAfterRegistration} ack="Got it.">
                 <Field label="CAC registration number (if available)">
                   <input
                     className="input"
@@ -691,9 +723,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("cacNumber", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showAfterRegistration} delay={0.08}>
+              <Reveal show={showAfterRegistration} delay={0.3}>
                 <RadioGroup
                   label="Where does your business currently operate?"
                   required
@@ -703,7 +735,7 @@ export default function ApplicationForm({ token }: Props) {
                 />
               </Reveal>
 
-              <Reveal show={showEmployeeCount}>
+              <AckReveal show={showEmployeeCount} ack="Almost there for this section.">
                 <RadioGroup
                   label="How many people currently work in your business?"
                   required
@@ -711,7 +743,7 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.employeeCount}
                   onChange={(v) => update("employeeCount", v)}
                 />
-              </Reveal>
+              </AckReveal>
             </>
           );
         })()}
@@ -749,7 +781,7 @@ export default function ApplicationForm({ token }: Props) {
                 </Reveal>
               )}
 
-              <Reveal show={revenueAnswered}>
+              <AckReveal show={revenueAnswered} ack="Thanks for being upfront about that.">
                 <Field label="What was your business revenue in the last 12 months?" required>
                   <input
                     className="input"
@@ -757,9 +789,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("revenueLast12Months", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showMainCustomers}>
+              <AckReveal show={showMainCustomers} ack="Good, noted.">
                 <Field label="Who are your main customers?" required>
                   <textarea
                     className="input min-h-[90px]"
@@ -767,9 +799,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("mainCustomers", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showChannels}>
+              <AckReveal show={showChannels} ack="Makes sense.">
                 <CheckboxGroup
                   label="How do customers currently find your business?"
                   required
@@ -777,22 +809,31 @@ export default function ApplicationForm({ token }: Props) {
                   values={form.customerAcquisitionChannels}
                   onToggle={(v) => toggleArrayValue("customerAcquisitionChannels", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showGrantAmount}>
-                <SectionHeading title="Funding Need & Business Needs" />
-                <Field label="How much funding are you requesting (₦)?" required>
-                  <input
-                    className="input"
-                    type="number"
-                    min={0}
-                    value={form.grantAmountRequested || ""}
-                    onChange={(e) => update("grantAmountRequested", Number(e.target.value))}
-                  />
-                </Field>
-              </Reveal>
+              <AckReveal show={showGrantAmount} ack="Now the part that matters most — the funding itself.">
+                <>
+                  <SectionHeading title="Funding Need & Business Needs" />
+                  <Field label="How much funding are you requesting (₦)?" required>
+                    <input
+                      className="input"
+                      type="number"
+                      min={0}
+                      value={form.grantAmountRequested || ""}
+                      onChange={(e) => update("grantAmountRequested", Number(e.target.value))}
+                    />
+                  </Field>
+                </>
+              </AckReveal>
 
-              <Reveal show={showFundingUse}>
+              <AckReveal
+                show={showFundingUse}
+                ack={
+                  form.grantAmountRequested > 0
+                    ? `₦${form.grantAmountRequested.toLocaleString()} — got it.`
+                    : "Got it."
+                }
+              >
                 <CheckboxGroup
                   label="What will you use the grant funding for?"
                   required
@@ -800,9 +841,9 @@ export default function ApplicationForm({ token }: Props) {
                   values={form.fundingUse}
                   onToggle={(v) => toggleArrayValue("fundingUse", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showGrowthExplanation}>
+              <AckReveal show={showGrowthExplanation} ack="Good choices.">
                 <Field label="Explain specifically how this funding will help your business grow" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -810,9 +851,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("fundingGrowthExplanation", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showBiggestChallenge}>
+              <AckReveal show={showBiggestChallenge} ack="That's helpful context.">
                 <Field label="What is the biggest challenge currently affecting your business growth?" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -820,7 +861,7 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("biggestChallenge", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
             </>
           );
         })()}
@@ -849,7 +890,14 @@ export default function ApplicationForm({ token }: Props) {
                 )}
               </Field>
 
-              <Reveal show={showProblemSolved}>
+              <AckReveal
+                show={showProblemSolved}
+                ack={
+                  form.whyStartBusiness.trim().split(/\s+/).length > 12
+                    ? "That comes through clearly — thanks for sharing that."
+                    : "Thanks for sharing that."
+                }
+              >
                 <Field label="What problem does your business solve?" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -857,9 +905,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("problemSolved", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showDesiredImpact}>
+              <AckReveal show={showDesiredImpact} ack="Good — that's an important problem to solve.">
                 <Field label="What impact do you hope to create through your business?" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -867,9 +915,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("desiredImpact", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showFiveYearVision}>
+              <AckReveal show={showFiveYearVision} ack="I like that.">
                 <Field label={`Where do you see ${bizName || "your business"} in the next 5 years?`} required>
                   <textarea
                     className="input min-h-[100px]"
@@ -877,9 +925,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("fiveYearVision", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showJobsToCreate}>
+              <AckReveal show={showJobsToCreate} ack="Exciting to hear.">
                 <RadioGroup
                   label="How many jobs do you hope to create through your business?"
                   required
@@ -887,20 +935,22 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.jobsToCreate}
                   onChange={(v) => update("jobsToCreate", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showWhyApplying}>
-                <SectionHeading title="Grant Application Questions" />
-                <Field label="Why are you applying for the Globe Tech SME Grant & Business Support Program?" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.whyApplying}
-                    onChange={(e) => update("whyApplying", e.target.value)}
-                  />
-                </Field>
-              </Reveal>
+              <AckReveal show={showWhyApplying} ack="Great vision — now a few questions specifically about this grant.">
+                <>
+                  <SectionHeading title="Grant Application Questions" />
+                  <Field label="Why are you applying for the Globe Tech SME Grant & Business Support Program?" required>
+                    <textarea
+                      className="input min-h-[100px]"
+                      value={form.whyApplying}
+                      onChange={(e) => update("whyApplying", e.target.value)}
+                    />
+                  </Field>
+                </>
+              </AckReveal>
 
-              <Reveal show={showWhySelected}>
+              <AckReveal show={showWhySelected} ack="Noted.">
                 <Field label="Why should your business be selected for this grant opportunity?" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -908,9 +958,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("whySelected", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showWhatMakesDifferent}>
+              <AckReveal show={showWhatMakesDifferent} ack="Good case.">
                 <Field label="What makes your business different from others in your industry?" required>
                   <textarea
                     className="input min-h-[100px]"
@@ -918,9 +968,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("whatMakesDifferent", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showAppliedBefore}>
+              <AckReveal show={showAppliedBefore} ack="That's a clear differentiator.">
                 <RadioGroup
                   label="Have you applied for a grant opportunity before?"
                   required
@@ -928,10 +978,10 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.appliedBefore}
                   onChange={(v) => update("appliedBefore", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
               {showAppliedBefore && form.appliedBefore === "Yes" && (
-                <Reveal show={true}>
+                <AckReveal show={true} ack="Okay, tell me more.">
                   <>
                     <RadioGroup
                       label="If yes, did you receive funding?"
@@ -948,7 +998,7 @@ export default function ApplicationForm({ token }: Props) {
                       />
                     </Field>
                   </>
-                </Reveal>
+                </AckReveal>
               )}
             </>
           );
@@ -971,7 +1021,7 @@ export default function ApplicationForm({ token }: Props) {
                 onChange={(v) => update("willingAcademy", v)}
               />
 
-              <Reveal show={showMentorship}>
+              <AckReveal show={showMentorship} ack="Good.">
                 <RadioGroup
                   label="Are you willing to commit time to mentorship sessions, assignments, and business improvement activities?"
                   required
@@ -979,9 +1029,9 @@ export default function ApplicationForm({ token }: Props) {
                   value={form.willingMentorship}
                   onChange={(v) => update("willingMentorship", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showImprovementAreas}>
+              <AckReveal show={showImprovementAreas} ack="Great.">
                 <CheckboxGroup
                   label="What areas of business development would you like to improve?"
                   required
@@ -989,20 +1039,22 @@ export default function ApplicationForm({ token }: Props) {
                   values={form.improvementAreas}
                   onToggle={(v) => toggleArrayValue("improvementAreas", v)}
                 />
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showHowHeard}>
-                <SectionHeading title="Referral Information" />
-                <RadioGroup
-                  label="How did you hear about the Globe Tech SME Grant & Business Support Program?"
-                  required
-                  options={HOW_HEARD_OPTIONS}
-                  value={form.howHeard}
-                  onChange={(v) => update("howHeard", v)}
-                />
-              </Reveal>
+              <AckReveal show={showHowHeard} ack="Just a couple more questions and you're done.">
+                <>
+                  <SectionHeading title="Referral Information" />
+                  <RadioGroup
+                    label="How did you hear about the Globe Tech SME Grant & Business Support Program?"
+                    required
+                    options={HOW_HEARD_OPTIONS}
+                    value={form.howHeard}
+                    onChange={(v) => update("howHeard", v)}
+                  />
+                </>
+              </AckReveal>
 
-              <Reveal show={showFinal}>
+              <AckReveal show={showFinal} ack={`Almost there, ${firstName || "friend"} — just the final confirmation left.`}>
                 <Field label="Do you belong to any entrepreneur/community/business network? (optional)">
                   <textarea
                     className="input min-h-[80px]"
@@ -1010,9 +1062,9 @@ export default function ApplicationForm({ token }: Props) {
                     onChange={(e) => update("entrepreneurNetwork", e.target.value)}
                   />
                 </Field>
-              </Reveal>
+              </AckReveal>
 
-              <Reveal show={showFinal}>
+              <Reveal show={showFinal} delay={0.3}>
                 <>
                   <SectionHeading title="Final Declaration" />
                   <label className="flex items-start gap-3 rounded-card border border-line bg-paper p-4 text-sm text-ink">
