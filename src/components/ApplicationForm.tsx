@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
-import { User, Building2, Wallet, Compass, ClipboardCheck, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
 import type { SubmitApplicationInput } from "@/app/apply/[token]/actions";
-import CopyButton from "@/components/CopyButton";
-import Stepper from "@/components/Stepper";
+import styles from "@/components/ChatApplicationForm.module.css";
+
+/* ============================================================
+   DATA
+   ============================================================ */
 
 const NIGERIA_STATES = [
   "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
@@ -137,97 +139,34 @@ const HOW_HEARD_OPTIONS = [
   "Social Media", "Friend/Referral", "Partner Organization", "Email", "Website", "Event", "Other",
 ];
 
-const STEPS = [
-  { label: "About You", icon: User },
-  { label: "Your Business", icon: Building2 },
-  { label: "Revenue & Funding", icon: Wallet },
-  { label: "Vision & Grant", icon: Compass },
-  { label: "Commitment", icon: ClipboardCheck },
-];
+const MIN_AGE_YEARS = 15;
 
-function filled(value: string | number | boolean | string[] | undefined): boolean {
-  if (typeof value === "string") return value.trim().length > 0;
-  if (typeof value === "number") return value > 0;
-  if (Array.isArray(value)) return value.length > 0;
-  if (typeof value === "boolean") return value;
-  return false;
-}
-
-/** Age in whole years as of today, given a YYYY-MM-DD date of birth string. */
 function ageFromDob(dob: string): number {
   const birth = new Date(dob);
   if (Number.isNaN(birth.getTime())) return 0;
   const today = new Date();
   let age = today.getFullYear() - birth.getFullYear();
   const monthDiff = today.getMonth() - birth.getMonth();
-  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-    age -= 1;
-  }
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age -= 1;
   return age;
 }
 
-/** The latest date of birth that still makes someone at least MIN_AGE_YEARS today, as YYYY-MM-DD. */
-const MIN_AGE_YEARS = 15;
 function maxDobForMinAge(): string {
   const d = new Date();
   d.setFullYear(d.getFullYear() - MIN_AGE_YEARS);
   return d.toISOString().slice(0, 10);
 }
 
-/** Reveals its children with a soft fade/slide-in once `show` becomes true, so each
- * step feels like one question leading to the next rather than a wall of fields. */
-function Reveal({
-  show,
-  children,
-  delay = 0,
-}: {
-  show: boolean;
-  children: React.ReactNode;
-  /** Optional stagger, in seconds, for fields that appear together (e.g. two optional fields at once). */
-  delay?: number;
-}) {
-  if (!show) return null;
-  return (
-    <div className="field-reveal" style={delay ? { animationDelay: `${delay}s` } : undefined}>
-      {children}
-    </div>
-  );
+function fname(a: FormState): string {
+  return a.applicantName.trim().split(/\s+/)[0] || "there";
 }
 
-/** A small chat-style message from the "assistant" side of the form, used to bridge
- * between one answered field and the next question — makes the flow feel like a
- * conversation rather than a form draining fields off a list. */
-function ChatBubble({ text }: { text: string }) {
-  return (
-    <div className="flex items-start gap-2.5">
-      <div className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand/10 text-brand">
-        <Sparkles size={12} />
-      </div>
-      <p className="text-sm leading-relaxed text-ink/80">{text}</p>
-    </div>
-  );
-}
-
-/** Reveals a short chat acknowledgment first, then the next question a beat behind it,
- * so answering a field feels like getting a reply before the next question drops. */
-function AckReveal({ show, ack, children }: { show: boolean; ack: string; children: React.ReactNode }) {
-  if (!show) return null;
-  return (
-    <div className="field-reveal space-y-3">
-      <ChatBubble text={ack} />
-      <div className="field-reveal" style={{ animationDelay: "0.22s" }}>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-interface Props {
-  token: string;
-  referralResolved: boolean;
-}
+/* ============================================================
+   FORM SHAPE
+   ============================================================ */
 
 type FormState = Omit<SubmitApplicationInput, "token" | "honeypot">;
+type FieldValue = string | number | string[] | boolean;
 
 const initialState: FormState = {
   applicantName: "",
@@ -291,14 +230,225 @@ const initialState: FormState = {
   declarationAgreed: false,
 };
 
+/* ============================================================
+   QUESTIONS — one at a time, in order
+   ============================================================ */
+
+type QType = "text" | "email" | "tel" | "date" | "number" | "textarea" | "select" | "quickreply" | "multiselect" | "lga" | "checkbox";
+
+interface Question {
+  id: keyof FormState;
+  type: QType;
+  label: string; // static label, used in the summary review
+  question: (a: FormState) => string;
+  placeholder?: string;
+  options?: string[];
+  required?: boolean | ((a: FormState) => boolean);
+  showIf?: (a: FormState) => boolean;
+  eyebrow?: string;
+  twoCol?: boolean;
+  checkboxText?: string;
+}
+
+const QUESTIONS: Question[] = [
+  { id: "applicantName", type: "text", label: "Full name", eyebrow: "Personal Information", placeholder: "Full name",
+    question: () => "Let's start simple — what's your full name?" },
+  { id: "gender", type: "quickreply", label: "Gender", twoCol: true, options: ["Male", "Female"],
+    question: (a) => `Hi ${fname(a)}! Hope you're doing well today. What's your gender?` },
+  { id: "dateOfBirth", type: "date", label: "Date of birth",
+    question: () => "And your date of birth?" },
+  { id: "phone", type: "tel", label: "Phone number", placeholder: "08012345678",
+    question: () => "What's the best phone number to reach you on?" },
+  { id: "email", type: "email", label: "Email address", placeholder: "you@example.com",
+    question: () => "And your email address?" },
+  { id: "stateOfResidence", type: "select", label: "State of residence", options: NIGERIA_STATES,
+    question: () => "Which state do you currently live in?" },
+  { id: "lga", type: "lga", label: "Local Government Area",
+    question: () => "Nice — and which Local Government Area?" },
+  { id: "linkedin", type: "text", label: "LinkedIn profile", required: false, placeholder: "linkedin.com/in/…",
+    question: () => "Got a LinkedIn profile? Drop the link — or skip this one." },
+  { id: "businessSocialHandle", type: "text", label: "Business social handle", required: false, placeholder: "@yourbusiness",
+    question: () => "And a social handle for your business, if you have one?" },
+
+  { id: "currentStatus", type: "quickreply", label: "Current status", eyebrow: "Entrepreneur Profile", options: CURRENT_STATUS_OPTIONS,
+    question: (a) => `Thanks, ${fname(a)}. What best describes your current status?` },
+  { id: "hasPriorBusiness", type: "quickreply", label: "Prior business experience", twoCol: true, options: ["Yes", "No"],
+    question: () => "Have you previously started or managed a business before?" },
+  { id: "priorBusinessDescription", type: "textarea", label: "Prior business description",
+    showIf: (a) => a.hasPriorBusiness === "Yes",
+    question: () => "Nice — tell me a bit about that previous business." },
+
+  { id: "businessName", type: "text", label: "Business name", eyebrow: "Business Information",
+    question: () => "Let's talk business — what's it called?" },
+  { id: "businessDescription", type: "textarea", label: "Business description", placeholder: "What products/services do you provide?",
+    question: (a) => `${a.businessName.trim() || "Nice name"} — what does it actually do?` },
+  { id: "industry", type: "select", label: "Industry", options: INDUSTRIES,
+    question: () => "What industry does it operate in?" },
+  { id: "supportCategory", type: "quickreply", label: "Support category", options: SUPPORT_CATEGORIES,
+    question: () => "What category of support are you applying for?" },
+
+  { id: "businessStage", type: "quickreply", label: "Business stage", eyebrow: "Business Stage & Operations", options: BUSINESS_STAGE_OPTIONS,
+    question: () => "Good — now let's talk about where things stand. What stage is your business at?" },
+  { id: "operatingDuration", type: "quickreply", label: "Operating duration", options: OPERATING_DURATION_OPTIONS,
+    question: () => "How long has it been operating?" },
+  { id: "dateEstablished", type: "date", label: "Date established",
+    question: () => "When was it established or launched?" },
+  { id: "registrationStatus", type: "quickreply", label: "Registration status", options: REGISTRATION_STATUS_OPTIONS,
+    question: () => "Is your business currently registered with the CAC?" },
+  { id: "cacNumber", type: "text", label: "CAC registration number", required: (a) => a.registrationStatus.startsWith("Yes"),
+    question: (a) => (a.registrationStatus.startsWith("Yes")
+      ? "Great — what's your CAC registration number?"
+      : "Have a CAC registration number yet? Add it here, or skip for now.") },
+  { id: "operatingLocation", type: "quickreply", label: "Operating location", options: OPERATING_LOCATION_OPTIONS,
+    question: () => "Where does your business currently operate?" },
+  { id: "employeeCount", type: "quickreply", label: "Employee count", options: EMPLOYEE_COUNT_OPTIONS,
+    question: () => "How many people currently work in the business?" },
+
+  { id: "hasRevenue", type: "quickreply", label: "Generating revenue", twoCol: true, eyebrow: "Revenue & Business Performance", options: ["Yes", "No"],
+    question: () => "Has your business started generating revenue?" },
+  { id: "avgMonthlyRevenue", type: "quickreply", label: "Average monthly revenue", options: AVG_MONTHLY_REVENUE_OPTIONS,
+    showIf: (a) => a.hasRevenue === "Yes",
+    question: () => "What's your average monthly revenue?" },
+  { id: "revenueLast12Months", type: "text", label: "Revenue (last 12 months)",
+    question: () => "Thanks for being upfront about that. What was your revenue over the last 12 months?" },
+  { id: "mainCustomers", type: "textarea", label: "Main customers",
+    question: () => "Who are your main customers?" },
+  { id: "customerAcquisitionChannels", type: "multiselect", label: "Customer acquisition channels", options: CUSTOMER_CHANNEL_OPTIONS,
+    question: () => "How do customers currently find your business? Pick all that apply." },
+
+  { id: "grantAmountRequested", type: "number", label: "Grant amount requested", eyebrow: "Funding Need & Business Needs", placeholder: "e.g. 500000",
+    question: () => "Now the part that matters most — how much funding are you requesting (in ₦)?" },
+  { id: "fundingUse", type: "multiselect", label: "Funding use", options: FUNDING_USE_OPTIONS,
+    question: (a) => (a.grantAmountRequested > 0
+      ? `₦${a.grantAmountRequested.toLocaleString()} — got it. What will you use it for? Pick all that apply.`
+      : "What will you use the funding for? Pick all that apply.") },
+  { id: "fundingGrowthExplanation", type: "textarea", label: "How funding helps growth",
+    question: () => "Explain specifically how this funding will help your business grow." },
+  { id: "biggestChallenge", type: "textarea", label: "Biggest challenge",
+    question: () => "What's the biggest challenge currently affecting your business growth?" },
+
+  { id: "whyStartBusiness", type: "textarea", label: "Why you started the business", eyebrow: "Entrepreneur Vision & Impact",
+    question: (a) => `Why did you start ${a.businessName.trim() || "this business"}?` },
+  { id: "problemSolved", type: "textarea", label: "Problem solved",
+    question: () => "Thanks for sharing that. What problem does your business solve?" },
+  { id: "desiredImpact", type: "textarea", label: "Desired impact",
+    question: () => "What impact do you hope to create through your business?" },
+  { id: "fiveYearVision", type: "textarea", label: "Five-year vision",
+    question: (a) => `Where do you see ${a.businessName.trim() || "your business"} in the next 5 years?` },
+  { id: "jobsToCreate", type: "quickreply", label: "Jobs to create", options: JOBS_TO_CREATE_OPTIONS,
+    question: () => "How many jobs do you hope to create through your business?" },
+
+  { id: "whyApplying", type: "textarea", label: "Why applying", eyebrow: "Grant Application Questions",
+    question: () => "Great vision. Why are you applying for the Globe Tech SME Grant & Business Support Program?" },
+  { id: "whySelected", type: "textarea", label: "Why you should be selected",
+    question: () => "Why should your business be selected for this grant opportunity?" },
+  { id: "whatMakesDifferent", type: "textarea", label: "What makes the business different",
+    question: () => "What makes your business different from others in your industry?" },
+  { id: "appliedBefore", type: "quickreply", label: "Applied for a grant before", twoCol: true, options: ["Yes", "No"],
+    question: () => "Have you applied for a grant opportunity before?" },
+  { id: "receivedFundingBefore", type: "quickreply", label: "Received funding before", twoCol: true, options: ["Yes", "No"],
+    showIf: (a) => a.appliedBefore === "Yes",
+    question: () => "Okay, tell me more — did you receive funding?" },
+  { id: "priorFundingDetails", type: "textarea", label: "Prior funding details", required: false,
+    showIf: (a) => a.appliedBefore === "Yes",
+    question: () => "Feel free to share a few details about that." },
+
+  { id: "willingAcademy", type: "quickreply", label: "Willing — Business Training", twoCol: true, eyebrow: "Business Training Commitment", options: ["Yes", "No"],
+    question: () => "Are you willing to participate in the Globe Tech Business Training if required?" },
+  { id: "willingMentorship", type: "quickreply", label: "Willing — mentorship", twoCol: true, options: ["Yes", "No"],
+    question: () => "Are you willing to commit time to mentorship sessions, assignments, and business improvement activities?" },
+  { id: "improvementAreas", type: "multiselect", label: "Improvement areas", options: IMPROVEMENT_AREA_OPTIONS,
+    question: () => "What areas of business development would you like to improve? Pick all that apply." },
+
+  { id: "howHeard", type: "quickreply", label: "How you heard about the program", eyebrow: "Referral Information", options: HOW_HEARD_OPTIONS,
+    question: () => "Just a couple more questions. How did you hear about the Globe Tech SME Grant & Business Support Program?" },
+  { id: "entrepreneurNetwork", type: "textarea", label: "Entrepreneur network", required: false,
+    question: (a) => `Almost there, ${fname(a)} — do you belong to any entrepreneur/community/business network? Optional.` },
+
+  { id: "declarationAgreed", type: "checkbox", label: "Declaration", eyebrow: "Final Declaration",
+    question: () => "Last step before you send it in — please read this and confirm.",
+    checkboxText:
+      "I confirm that the information provided in this application is accurate and complete. I understand that submission of this application does not guarantee funding and that selected applicants may undergo further evaluation." },
+];
+
+function resolveRequired(q: Question, form: FormState): boolean {
+  if (typeof q.required === "function") return q.required(form);
+  return q.required ?? true;
+}
+
+function validateAnswer(q: Question, value: FieldValue, form: FormState): string | null {
+  const required = resolveRequired(q, form);
+
+  if (q.type === "multiselect") {
+    if (required && (value as string[]).length === 0) return "Select at least one option.";
+    return null;
+  }
+  if (q.type === "checkbox") {
+    if (required && !value) return "Please check the box to confirm before continuing.";
+    return null;
+  }
+  if (q.type === "number") {
+    const n = Number(value);
+    if (required && (!n || n <= 0)) return "Enter an amount greater than zero.";
+    return null;
+  }
+
+  const str = typeof value === "string" ? value.trim() : "";
+  if (required && !str) return "This one's needed before we move on.";
+  if (!str) return null;
+
+  if (q.type === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str)) {
+    return "That email doesn't look quite right — mind checking it?";
+  }
+  if (q.type === "tel" && str.length !== 11) {
+    return "Enter exactly 11 digits.";
+  }
+  if (q.id === "dateOfBirth" && ageFromDob(str) < MIN_AGE_YEARS) {
+    return `You must be at least ${MIN_AGE_YEARS} years old to apply.`;
+  }
+  return null;
+}
+
+function summaryDisplay(q: Question, form: FormState): string {
+  const v = form[q.id] as FieldValue;
+  if (q.type === "multiselect") return (v as string[]).length ? (v as string[]).join(", ") : "—";
+  if (q.type === "checkbox") return v ? "Agreed ✓" : "—";
+  if (q.type === "number") return v ? `₦${Number(v).toLocaleString()}` : "—";
+  const s = typeof v === "string" ? v.trim() : "";
+  return s || "—";
+}
+
+/* ============================================================
+   TRANSCRIPT TYPES
+   ============================================================ */
+
+interface TranscriptItem {
+  who: "bot" | "user";
+  text: string;
+  eyebrow?: string;
+}
+
+type Stage = "welcome" | "questions" | "summary" | "done";
+
+interface Props {
+  token: string;
+  referralResolved: boolean;
+}
+
 export default function ApplicationForm({ token }: Props) {
-  const [step, setStep] = useState(1);
+  const [stage, setStage] = useState<Stage>("welcome");
   const [form, setForm] = useState<FormState>(initialState);
+  const [visible, setVisible] = useState<Question[]>(() => QUESTIONS.filter((q) => !q.showIf));
+  const [qIndex, setQIndex] = useState(0);
+  const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
+  const [typing, setTyping] = useState(false);
   const [lgaOtherMode, setLgaOtherMode] = useState(false);
   const [honeypot, setHoneypot] = useState("");
-  const [errors, setErrors] = useState<string | null>(null);
-  const [submittedCode, setSubmittedCode] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [referralCode, setReferralCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const threadRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     recordVisit(token).catch(() => {
@@ -311,899 +461,254 @@ export default function ApplicationForm({ token }: Props) {
     }
   }, [token]);
 
-  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
-    setForm((f) => ({ ...f, [key]: value }));
+  useEffect(() => {
+    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+  }, [transcript, typing]);
+
+  function askQuestion(idx: number, nextForm: FormState, nextVisible: Question[]) {
+    const q = nextVisible[idx];
+    setTyping(true);
+    setTimeout(() => {
+      setTyping(false);
+      setTranscript((t) => [...t, { who: "bot", text: q.question(nextForm) + (resolveRequired(q, nextForm) ? "" : " (optional)"), eyebrow: q.eyebrow }]);
+    }, 480 + Math.random() * 320);
   }
 
-  function toggleArrayValue(key: "customerAcquisitionChannels" | "fundingUse" | "improvementAreas", value: string) {
-    setForm((f) => {
-      const current = f[key];
-      const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
-      return { ...f, [key]: next };
-    });
+  function start() {
+    const firstVisible = QUESTIONS.filter((q) => !q.showIf);
+    setVisible(firstVisible);
+    setStage("questions");
+    setQIndex(0);
+    askQuestion(0, form, firstVisible);
   }
 
-  function validateStep1(): string | null {
-    if (!form.applicantName.trim()) return "Enter your full name.";
-    if (!form.gender) return "Select your gender.";
-    if (!form.dateOfBirth) return "Enter your date of birth.";
-    if (ageFromDob(form.dateOfBirth) < MIN_AGE_YEARS) return `You must be at least ${MIN_AGE_YEARS} years old to apply.`;
-    if (form.phone.length !== 11) return "Enter an 11-digit phone number.";
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Enter a valid email address.";
-    if (!form.stateOfResidence) return "Select your state of residence.";
-    if (!form.lga.trim()) return "Select your Local Government Area.";
-    if (!form.currentStatus) return "Select what best describes your current status.";
-    if (!form.hasPriorBusiness) return "Let us know if you've previously started or managed a business.";
-    if (form.hasPriorBusiness === "Yes" && !form.priorBusinessDescription.trim())
-      return "Briefly describe your previous business experience.";
-    return null;
-  }
+  function submitAnswer(value: FieldValue, display: string) {
+    const q = visible[qIndex];
+    const nextForm: FormState = { ...form, [q.id]: value } as FormState;
+    setForm(nextForm);
+    setTranscript((t) => [...t, { who: "user", text: display }]);
+    setLgaOtherMode(false);
 
-  function validateStep2(): string | null {
-    if (!form.businessName.trim()) return "Enter your business name.";
-    if (!form.businessDescription.trim()) return "Briefly describe your business.";
-    if (!form.industry) return "Select your business industry.";
-    if (!form.supportCategory) return "Select the category of support you're applying for.";
-    if (!form.businessStage) return "Select your business stage.";
-    if (!form.operatingDuration) return "Select how long your business has been operating.";
-    if (!form.dateEstablished) return "Enter the date your business was established.";
-    if (!form.registrationStatus) return "Select your business registration status.";
-    if (form.registrationStatus.startsWith("Yes") && !form.cacNumber.trim())
-      return "Enter your CAC registration number.";
-    if (!form.operatingLocation) return "Select where your business currently operates.";
-    if (!form.employeeCount) return "Select how many people currently work in your business.";
-    return null;
-  }
+    const nextVisible = QUESTIONS.filter((qq) => !qq.showIf || qq.showIf(nextForm));
+    const nextIndex = qIndex + 1;
+    setVisible(nextVisible);
+    setQIndex(nextIndex);
 
-  function validateStep3(): string | null {
-    if (!form.hasRevenue) return "Let us know if your business has started generating revenue.";
-    if (form.hasRevenue === "Yes" && !form.avgMonthlyRevenue) return "Select your average monthly revenue.";
-    if (!form.revenueLast12Months.trim()) return "Enter your business revenue in the last 12 months.";
-    if (!form.mainCustomers.trim()) return "Describe who your main customers are.";
-    if (form.customerAcquisitionChannels.length === 0) return "Select how customers currently find your business.";
-    if (!form.grantAmountRequested || form.grantAmountRequested <= 0)
-      return "Enter how much funding you're requesting.";
-    if (form.fundingUse.length === 0) return "Select what you'll use the grant funding for.";
-    if (!form.fundingGrowthExplanation.trim()) return "Explain how the funding will help your business grow.";
-    if (!form.biggestChallenge.trim()) return "Describe the biggest challenge affecting your business growth.";
-    return null;
-  }
-
-  function validateStep4(): string | null {
-    if (!form.whyStartBusiness.trim()) return "Tell us why you started this business.";
-    if (!form.problemSolved.trim()) return "Describe the problem your business solves.";
-    if (!form.desiredImpact.trim()) return "Describe the impact you hope to create.";
-    if (!form.fiveYearVision.trim()) return "Tell us where you see your business in 5 years.";
-    if (!form.jobsToCreate) return "Select how many jobs you hope to create.";
-    if (!form.whyApplying.trim()) return "Tell us why you're applying for this program.";
-    if (!form.whySelected.trim()) return "Tell us why your business should be selected.";
-    if (!form.whatMakesDifferent.trim()) return "Tell us what makes your business different.";
-    if (!form.appliedBefore) return "Let us know if you've applied for a grant opportunity before.";
-    if (form.appliedBefore === "Yes" && !form.receivedFundingBefore)
-      return "Let us know if you received funding previously.";
-    return null;
-  }
-
-  function validateStep5(): string | null {
-    if (!form.willingAcademy) return "Let us know if you're willing to join the Business Training.";
-    if (!form.willingMentorship) return "Let us know if you can commit time to mentorship and assignments.";
-    if (form.improvementAreas.length === 0) return "Select at least one area of business development to improve.";
-    if (!form.howHeard) return "Select how you heard about the program.";
-    if (!form.declarationAgreed) return "Please confirm the final declaration to submit.";
-    return null;
-  }
-
-  function goNext() {
-    const validators = [validateStep1, validateStep2, validateStep3, validateStep4, validateStep5];
-    const error = validators[step - 1]!();
-    if (error) {
-      setErrors(error);
-      return;
+    if (nextIndex >= nextVisible.length) {
+      setTyping(true);
+      setTimeout(() => {
+        setTyping(false);
+        setStage("summary");
+        setTranscript((t) => [
+          ...t,
+          {
+            who: "bot",
+            text: `That's everything, ${fname(nextForm)}. Take a look below, then send it in when you're ready.`,
+          },
+        ]);
+      }, 480 + Math.random() * 320);
+    } else {
+      askQuestion(nextIndex, nextForm, nextVisible);
     }
-    setErrors(null);
-    setStep((s) => s + 1);
   }
 
   function goBack() {
-    setErrors(null);
-    setStep((s) => s - 1);
-  }
-
-  function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const error = validateStep5();
-    if (error) {
-      setErrors(error);
+    if (stage === "summary") {
+      setTranscript((t) => t.slice(0, -1));
+      setStage("questions");
       return;
     }
-    setErrors(null);
-
-    startTransition(async () => {
-      const result = await submitApplication({
-        token,
-        ...form,
-        honeypot,
-      });
-
-      if (!result.ok) {
-        setErrors(result.error ?? "Something went wrong. Please try again.");
+    if (stage === "questions") {
+      if (qIndex === 0) {
+        setStage("welcome");
+        setTranscript([]);
+        setQIndex(0);
         return;
       }
-      setSubmittedCode(result.firstBankReferralCode ?? null);
-    });
+      setTranscript((t) => t.slice(0, -2));
+      setQIndex((i) => i - 1);
+    }
   }
 
-  const firstName = form.applicantName.trim().split(/\s+/)[0] || "";
-  const bizName = form.businessName.trim();
+  async function finalSubmit() {
+    setSubmitting(true);
+    setSubmitError(null);
+    const result = await submitApplication({ token, ...form, honeypot });
+    setSubmitting(false);
+    if (!result.ok) {
+      setSubmitError(result.error ?? "Something went wrong. Please try again.");
+      return;
+    }
+    setReferralCode(result.firstBankReferralCode ?? null);
+    setStage("done");
+  }
 
-  const coachMessage = useMemo(() => {
-    if (step === 1) {
-      if (!form.applicantName.trim()) {
-        return "Hi! I'm here to make this quick and painless. Let's start with a bit about you — no rush.";
-      }
-      if (!form.currentStatus) {
-        return `Good to meet you, ${firstName}. Tell me a little about where you're at as an entrepreneur.`;
-      }
-      if (form.hasPriorBusiness === "Yes") {
-        return `Running a business before is real experience, ${firstName} — it'll help your case here.`;
-      }
-      return `Thanks, ${firstName}. One more question here, then we'll get into your business.`;
+  async function copyCode() {
+    if (!referralCode) return;
+    try {
+      await navigator.clipboard.writeText(referralCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard API can fail silently; code is visible on screen either way */
     }
-    if (step === 2) {
-      if (!form.businessName.trim()) {
-        return "Now for the fun part — tell me about the business itself.";
-      }
-      if (!form.industry) {
-        return `${bizName} — nice. What space is it operating in?`;
-      }
-      if (form.businessStage?.startsWith("Idea") || form.businessStage?.startsWith("Pre-launch")) {
-        return `An early-stage idea is exactly the kind of thing this grant exists for. Let's map out where things stand.`;
-      }
-      return `Good, this is giving me a clear picture of ${bizName || "your business"}.`;
-    }
-    if (step === 3) {
-      if (!form.hasRevenue) {
-        return "No judgment either way here — pre-revenue or already earning, both are valid starting points.";
-      }
-      if (form.grantAmountRequested > 0) {
-        return `₦${form.grantAmountRequested.toLocaleString()} — got it. Let's make sure the reviewers understand exactly why.`;
-      }
-      return "This section is where the numbers start telling your story — take your time.";
-    }
-    if (step === 4) {
-      if (!form.whyStartBusiness.trim()) {
-        return `This is the part reviewers actually remember, ${firstName}. Your honest reason for starting matters more than polish.`;
-      }
-      if (form.whyStartBusiness.trim().split(/\s+/).length > 12) {
-        return "That's a strong reason — it comes through. Keep going.";
-      }
-      return "A few more reflective questions, then some quick admin ones.";
-    }
-    return "Almost done — just your commitments and a final confirmation left.";
-  }, [step, form.applicantName, form.currentStatus, form.hasPriorBusiness, form.businessName, form.industry, form.businessStage, form.hasRevenue, form.grantAmountRequested, form.whyStartBusiness, firstName, bizName]);
+  }
 
-  if (submittedCode) {
-    return (
-      <div className="rounded-card border border-line bg-white p-8 shadow-sm">
-        <div className="mb-1 inline-flex items-center gap-2 rounded-full bg-goldSoft px-3 py-1 text-sm font-medium text-gold">
-          Application received
-        </div>
-        <h2 className="mt-4 font-display text-2xl font-semibold text-ink">
-          Check your email for the next step
-        </h2>
-        <p className="mt-2 text-slate">
-          Phase 2 is opening your FirstBank account. Enter the code below in the{" "}
-          <strong>Referral</strong> field on FirstBank&rsquo;s account-opening form.
-        </p>
+  const progressPct =
+    stage === "welcome"
+      ? 0
+      : stage === "questions"
+        ? 5 + (qIndex / Math.max(visible.length, 1)) * 89
+        : stage === "summary"
+          ? 96
+          : 100;
 
-        <div className="mt-6 rounded-card border border-line bg-paper p-6 text-center">
-          <p className="mb-2 text-xs font-medium uppercase tracking-widest text-slate">
-            Your referral code
-          </p>
-          <p className="font-mono text-3xl font-bold tracking-wider text-ink">{submittedCode}</p>
-          <div className="mt-4 flex justify-center">
-            <CopyButton value={submittedCode} label="Copy code" />
+  const headerLabel = stage === "welcome" ? "Let's get you set up" : "SME Grant Application";
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.app}>
+        <header className={styles.header}>
+          <button className={styles.backBtn} onClick={goBack} disabled={stage === "welcome" || stage === "done" || submitting} title="Back">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <div className={styles.mark}>GT</div>
+          <div className={styles.headText}>
+            <div className={styles.org}>Globe-Tech · SME Grant Program</div>
+            <div className={styles.roleLabel}>{headerLabel}</div>
+          </div>
+        </header>
+        <div style={{ padding: "0 20px" }}>
+          <div className={styles.progressTrack}>
+            <div className={styles.progressFill} style={{ width: `${progressPct}%` }} />
           </div>
         </div>
 
-        <p className="mt-6 text-sm text-slate">
-          We&rsquo;ve also emailed this code to <strong>{form.email}</strong> along with exactly
-          where to enter it on FirstBank&rsquo;s form.
-        </p>
-      </div>
-    );
-  }
+        <div className={styles.thread} ref={threadRef}>
+          {stage === "welcome" && (
+            <div className={styles.welcomeHero}>
+              <h1>Hi — I&rsquo;m here to walk you through your SME Grant application.</h1>
+              <p>
+                No long form, no blank boxes staring back at you. Just a few questions, one at a
+                time, like we&rsquo;re actually talking. Take your time.
+              </p>
+            </div>
+          )}
 
-  return (
-    <div className="rounded-card border border-line bg-white p-8 shadow-sm">
-      <div className="mb-6">
-        <Stepper steps={STEPS} current={step} />
-      </div>
-
-      <div className="mb-6 flex items-start gap-3 rounded-card border border-brand/20 bg-brand/5 p-4">
-        <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-white">
-          <Sparkles size={14} />
-        </div>
-        <p className="text-sm leading-relaxed text-ink">{coachMessage}</p>
-      </div>
-
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div key={step} className="step-enter space-y-5">
-        {step === 1 && (() => {
-          const showGender = filled(form.applicantName);
-          const showDob = showGender && filled(form.gender);
-          const dobValid = filled(form.dateOfBirth) && ageFromDob(form.dateOfBirth) >= MIN_AGE_YEARS;
-          const showPhone = showDob && dobValid;
-          const showEmail = showPhone && form.phone.length === 11;
-          const showState = showEmail && filled(form.email);
-          const showLga = showState && filled(form.stateOfResidence);
-          const showOptionalContacts = showLga && filled(form.lga);
-          const showEntrepreneurProfile = showOptionalContacts;
-          const showPriorBusiness = showEntrepreneurProfile && filled(form.currentStatus);
-
-          return (
-            <>
-              <SectionHeading title="Personal Information" />
-              <Field label="Full name" required>
-                <input
-                  className="input"
-                  value={form.applicantName}
-                  onChange={(e) => update("applicantName", e.target.value)}
-                  autoComplete="name"
-                />
-              </Field>
-
-              <AckReveal show={showGender} ack={`Hi ${firstName || "there"}! Hope you're doing well today — just a bit more about you before we get into the business side.`}>
-                <RadioGroup
-                  label="Gender"
-                  required
-                  options={["Male", "Female"]}
-                  value={form.gender}
-                  onChange={(v) => update("gender", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showDob} ack="Thanks — noted.">
-                <Field label="Date of birth" required>
-                  <input
-                    className="input"
-                    type="date"
-                    max={maxDobForMinAge()}
-                    value={form.dateOfBirth}
-                    onChange={(e) => update("dateOfBirth", e.target.value)}
-                  />
-                  {filled(form.dateOfBirth) && !dobValid && (
-                    <p className="mt-1.5 text-xs text-red-600">
-                      You must be at least {MIN_AGE_YEARS} years old to apply.
-                    </p>
-                  )}
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showPhone} ack="Got it.">
-                <Field label="Phone number" required>
-                  <input
-                    className="input"
-                    type="tel"
-                    inputMode="numeric"
-                    placeholder="08012345678"
-                    value={form.phone}
-                    onChange={(e) => update("phone", e.target.value.replace(/\D/g, "").slice(0, 11))}
-                    autoComplete="tel"
-                  />
-                  {filled(form.phone) && form.phone.length !== 11 && (
-                    <p className="mt-1.5 text-xs text-red-600">Enter exactly 11 digits.</p>
-                  )}
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showEmail} ack="Perfect.">
-                <Field label="Email address" required>
-                  <input
-                    className="input"
-                    type="email"
-                    value={form.email}
-                    onChange={(e) => update("email", e.target.value)}
-                    autoComplete="email"
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showState} ack="Great, almost done with your bio.">
-                <Field label="State of residence" required>
-                  <select
-                    className="input"
-                    value={form.stateOfResidence}
-                    onChange={(e) => {
-                      update("stateOfResidence", e.target.value);
-                      update("lga", "");
-                      setLgaOtherMode(false);
-                    }}
-                  >
-                    <option value="">Select a state</option>
-                    {NIGERIA_STATES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showLga} ack="Nice — just need your LGA to pinpoint that.">
-                <Field label="Local Government Area" required>
-                  <select
-                    className="input"
-                    value={lgaOtherMode ? LGA_OTHER : form.lga}
-                    onChange={(e) => {
-                      if (e.target.value === LGA_OTHER) {
-                        setLgaOtherMode(true);
-                        update("lga", "");
-                      } else {
-                        setLgaOtherMode(false);
-                        update("lga", e.target.value);
-                      }
-                    }}
-                  >
-                    <option value="">Select your LGA</option>
-                    {(NIGERIA_LGAS_BY_STATE[form.stateOfResidence] ?? []).map((l) => (
-                      <option key={l} value={l}>
-                        {l}
-                      </option>
-                    ))}
-                    <option value={LGA_OTHER}>{LGA_OTHER}</option>
-                  </select>
-                  {lgaOtherMode && (
-                    <input
-                      className="input mt-2"
-                      placeholder="Type your LGA"
-                      value={form.lga}
-                      onChange={(e) => update("lga", e.target.value)}
-                    />
-                  )}
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showOptionalContacts} ack="That's your bio sorted. A couple of optional links, if you have them.">
-                <Field label="LinkedIn profile (optional)">
-                  <input
-                    className="input"
-                    value={form.linkedin}
-                    onChange={(e) => update("linkedin", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <Reveal show={showOptionalContacts} delay={0.3}>
-                <Field label="Social media handle(s) for your business (optional)">
-                  <input
-                    className="input"
-                    value={form.businessSocialHandle}
-                    onChange={(e) => update("businessSocialHandle", e.target.value)}
-                  />
-                </Field>
-              </Reveal>
-
-              <AckReveal show={showEntrepreneurProfile} ack="Now let's talk about you as an entrepreneur.">
-                <>
-                  <SectionHeading title="Entrepreneur Profile" />
-                  <RadioGroup
-                    label="What best describes your current status?"
-                    required
-                    options={CURRENT_STATUS_OPTIONS}
-                    value={form.currentStatus}
-                    onChange={(v) => update("currentStatus", v)}
-                  />
-                </>
-              </AckReveal>
-
-              <AckReveal show={showPriorBusiness} ack="Good to know.">
-                <RadioGroup
-                  label="Have you previously started or managed a business before?"
-                  required
-                  options={["Yes", "No"]}
-                  value={form.hasPriorBusiness}
-                  onChange={(v) => update("hasPriorBusiness", v)}
-                />
-              </AckReveal>
-
-              {showPriorBusiness && form.hasPriorBusiness === "Yes" && (
-                <AckReveal show={true} ack="Nice — tell me a bit more about that.">
-                  <Field label="Briefly describe your previous business experience" required>
-                    <textarea
-                      className="input min-h-[100px]"
-                      value={form.priorBusinessDescription}
-                      onChange={(e) => update("priorBusinessDescription", e.target.value)}
-                    />
-                  </Field>
-                </AckReveal>
-              )}
-            </>
-          );
-        })()}
-
-        {step === 2 && (() => {
-          const showDescription = filled(form.businessName);
-          const showIndustry = showDescription && filled(form.businessDescription);
-          const showSupportCategory = showIndustry && filled(form.industry);
-          const showStage = showSupportCategory && filled(form.supportCategory);
-          const showDuration = showStage && filled(form.businessStage);
-          const showDateEstablished = showDuration && filled(form.operatingDuration);
-          const showRegistrationStatus = showDateEstablished && filled(form.dateEstablished);
-          const showAfterRegistration = showRegistrationStatus && filled(form.registrationStatus);
-          const cacRequired = form.registrationStatus.startsWith("Yes");
-          const showEmployeeCount = showAfterRegistration && filled(form.operatingLocation);
-
-          return (
-            <>
-              <SectionHeading title="Business Information" />
-              <Field label="Business name" required>
-                <input
-                  className="input"
-                  value={form.businessName}
-                  onChange={(e) => update("businessName", e.target.value)}
-                />
-              </Field>
-
-              <AckReveal show={showDescription} ack={`${bizName || "That name"} — nice. What does it actually do?`}>
-                <Field label="Briefly describe your business" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    placeholder="What products/services do you provide?"
-                    value={form.businessDescription}
-                    onChange={(e) => update("businessDescription", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showIndustry} ack="Got it, that gives me a clear picture.">
-                <Field label="What industry does your business operate in?" required>
-                  <select
-                    className="input"
-                    value={form.industry}
-                    onChange={(e) => update("industry", e.target.value)}
-                  >
-                    <option value="">Select an industry</option>
-                    {INDUSTRIES.map((i) => (
-                      <option key={i} value={i}>
-                        {i}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showSupportCategory} ack="Makes sense.">
-                <RadioGroup
-                  label="What category of support are you applying for?"
-                  required
-                  options={SUPPORT_CATEGORIES}
-                  value={form.supportCategory}
-                  onChange={(v) => update("supportCategory", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showStage} ack="Good — now let's talk about where things stand operationally.">
-                <>
-                  <SectionHeading title="Business Stage & Operations" />
-                  <RadioGroup
-                    label="What stage is your business currently?"
-                    required
-                    options={BUSINESS_STAGE_OPTIONS}
-                    value={form.businessStage}
-                    onChange={(v) => update("businessStage", v)}
-                  />
-                </>
-              </AckReveal>
-
-              <AckReveal show={showDuration} ack="Noted.">
-                <RadioGroup
-                  label="How long has your business been operating?"
-                  required
-                  options={OPERATING_DURATION_OPTIONS}
-                  value={form.operatingDuration}
-                  onChange={(v) => update("operatingDuration", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showDateEstablished} ack="Thanks.">
-                <Field label="Date your business was established/launched" required>
-                  <input
-                    className="input"
-                    type="date"
-                    value={form.dateEstablished}
-                    onChange={(e) => update("dateEstablished", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showRegistrationStatus} ack="Okay.">
-                <RadioGroup
-                  label="Is your business currently registered?"
-                  required
-                  options={REGISTRATION_STATUS_OPTIONS}
-                  value={form.registrationStatus}
-                  onChange={(v) => update("registrationStatus", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showAfterRegistration} ack={cacRequired ? "Great, let's get that number down." : "Got it."}>
-                <Field label="CAC registration number" required={cacRequired}>
-                  <input
-                    className="input"
-                    value={form.cacNumber}
-                    onChange={(e) => update("cacNumber", e.target.value)}
-                  />
-                  {!cacRequired && (
-                    <p className="mt-1.5 text-xs text-slate">Optional — leave blank if you don&rsquo;t have one yet.</p>
-                  )}
-                </Field>
-              </AckReveal>
-
-              <Reveal show={showAfterRegistration} delay={0.3}>
-                <RadioGroup
-                  label="Where does your business currently operate?"
-                  required
-                  options={OPERATING_LOCATION_OPTIONS}
-                  value={form.operatingLocation}
-                  onChange={(v) => update("operatingLocation", v)}
-                />
-              </Reveal>
-
-              <AckReveal show={showEmployeeCount} ack="Almost there for this section.">
-                <RadioGroup
-                  label="How many people currently work in your business?"
-                  required
-                  options={EMPLOYEE_COUNT_OPTIONS}
-                  value={form.employeeCount}
-                  onChange={(v) => update("employeeCount", v)}
-                />
-              </AckReveal>
-            </>
-          );
-        })()}
-
-        {step === 3 && (() => {
-          const revenueAnswered =
-            filled(form.hasRevenue) && (form.hasRevenue !== "Yes" || filled(form.avgMonthlyRevenue));
-          const showMainCustomers = revenueAnswered && filled(form.revenueLast12Months);
-          const showChannels = showMainCustomers && filled(form.mainCustomers);
-          const showGrantAmount = showChannels && form.customerAcquisitionChannels.length > 0;
-          const showFundingUse = showGrantAmount && form.grantAmountRequested > 0;
-          const showGrowthExplanation = showFundingUse && form.fundingUse.length > 0;
-          const showBiggestChallenge = showGrowthExplanation && filled(form.fundingGrowthExplanation);
-
-          return (
-            <>
-              <SectionHeading title="Revenue & Business Performance" />
-              <RadioGroup
-                label="Has your business started generating revenue?"
-                required
-                options={["Yes", "No"]}
-                value={form.hasRevenue}
-                onChange={(v) => update("hasRevenue", v)}
-              />
-
-              {filled(form.hasRevenue) && form.hasRevenue === "Yes" && (
-                <Reveal show={true}>
-                  <RadioGroup
-                    label="What is your average monthly revenue?"
-                    required
-                    options={AVG_MONTHLY_REVENUE_OPTIONS}
-                    value={form.avgMonthlyRevenue}
-                    onChange={(v) => update("avgMonthlyRevenue", v)}
-                  />
-                </Reveal>
-              )}
-
-              <AckReveal show={revenueAnswered} ack="Thanks for being upfront about that.">
-                <Field label="What was your business revenue in the last 12 months?" required>
-                  <input
-                    className="input"
-                    value={form.revenueLast12Months}
-                    onChange={(e) => update("revenueLast12Months", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showMainCustomers} ack="Good, noted.">
-                <Field label="Who are your main customers?" required>
-                  <textarea
-                    className="input min-h-[90px]"
-                    value={form.mainCustomers}
-                    onChange={(e) => update("mainCustomers", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showChannels} ack="Makes sense.">
-                <CheckboxGroup
-                  label="How do customers currently find your business?"
-                  required
-                  options={CUSTOMER_CHANNEL_OPTIONS}
-                  values={form.customerAcquisitionChannels}
-                  onToggle={(v) => toggleArrayValue("customerAcquisitionChannels", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showGrantAmount} ack="Now the part that matters most — the funding itself.">
-                <>
-                  <SectionHeading title="Funding Need & Business Needs" />
-                  <Field label="How much funding are you requesting (₦)?" required>
-                    <input
-                      className="input"
-                      type="number"
-                      min={0}
-                      value={form.grantAmountRequested || ""}
-                      onChange={(e) => update("grantAmountRequested", Number(e.target.value))}
-                    />
-                  </Field>
-                </>
-              </AckReveal>
-
-              <AckReveal
-                show={showFundingUse}
-                ack={
-                  form.grantAmountRequested > 0
-                    ? `₦${form.grantAmountRequested.toLocaleString()} — got it.`
-                    : "Got it."
-                }
-              >
-                <CheckboxGroup
-                  label="What will you use the grant funding for?"
-                  required
-                  options={FUNDING_USE_OPTIONS}
-                  values={form.fundingUse}
-                  onToggle={(v) => toggleArrayValue("fundingUse", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showGrowthExplanation} ack="Good choices.">
-                <Field label="Explain specifically how this funding will help your business grow" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.fundingGrowthExplanation}
-                    onChange={(e) => update("fundingGrowthExplanation", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showBiggestChallenge} ack="That's helpful context.">
-                <Field label="What is the biggest challenge currently affecting your business growth?" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.biggestChallenge}
-                    onChange={(e) => update("biggestChallenge", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-            </>
-          );
-        })()}
-
-        {step === 4 && (() => {
-          const showProblemSolved = filled(form.whyStartBusiness);
-          const showDesiredImpact = showProblemSolved && filled(form.problemSolved);
-          const showFiveYearVision = showDesiredImpact && filled(form.desiredImpact);
-          const showJobsToCreate = showFiveYearVision && filled(form.fiveYearVision);
-          const showWhyApplying = showJobsToCreate && filled(form.jobsToCreate);
-          const showWhySelected = showWhyApplying && filled(form.whyApplying);
-          const showWhatMakesDifferent = showWhySelected && filled(form.whySelected);
-          const showAppliedBefore = showWhatMakesDifferent && filled(form.whatMakesDifferent);
-
-          return (
-            <>
-              <SectionHeading title="Entrepreneur Vision & Impact" />
-              <Field label={`Why did you start ${bizName || "this business"}?`} required>
-                <textarea
-                  className="input min-h-[100px]"
-                  value={form.whyStartBusiness}
-                  onChange={(e) => update("whyStartBusiness", e.target.value)}
-                />
-                {form.whyStartBusiness.trim().split(/\s+/).length > 12 && (
-                  <p className="mt-1.5 text-xs text-brand">That comes through clearly — thank you for sharing it.</p>
+          {stage !== "welcome" &&
+            transcript.map((item, i) => (
+              <div key={i} className={`${styles.row} ${item.who === "bot" ? styles.rowBot : styles.rowUser}`}>
+                {item.who === "bot" && <div className={styles.avatar}>GT</div>}
+                <div className={`${styles.bubble} ${item.who === "bot" ? styles.botBubble : styles.userBubble}`}>
+                  {item.who === "bot" && item.eyebrow && <span className={styles.eyebrow}>{item.eyebrow}</span>}
+                  {item.text}
+                </div>
+                {item.who === "user" && (
+                  <div className={`${styles.avatar} ${styles.userAvatar}`}>
+                    {(fname(form) || "?").charAt(0).toUpperCase()}
+                  </div>
                 )}
-              </Field>
+              </div>
+            ))}
 
-              <AckReveal
-                show={showProblemSolved}
-                ack={
-                  form.whyStartBusiness.trim().split(/\s+/).length > 12
-                    ? "That comes through clearly — thanks for sharing that."
-                    : "Thanks for sharing that."
-                }
-              >
-                <Field label="What problem does your business solve?" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.problemSolved}
-                    onChange={(e) => update("problemSolved", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
+          {typing && (
+            <div className={`${styles.row} ${styles.rowBot}`}>
+              <div className={styles.avatar}>GT</div>
+              <div className={`${styles.bubble} ${styles.botBubble} ${styles.typingBubble}`}>
+                <div className={styles.dot} />
+                <div className={styles.dot} />
+                <div className={styles.dot} />
+              </div>
+            </div>
+          )}
 
-              <AckReveal show={showDesiredImpact} ack="Good — that's an important problem to solve.">
-                <Field label="What impact do you hope to create through your business?" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.desiredImpact}
-                    onChange={(e) => update("desiredImpact", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
+          {stage === "summary" && !typing && (
+            <div className={`${styles.row} ${styles.rowBot}`}>
+              <div className={styles.avatar}>GT</div>
+              <div className={styles.summaryCard}>
+                <span className={styles.roleTag}>SME Grant Application</span>
+                {QUESTIONS.filter((q) => !q.showIf || q.showIf(form)).map((q) => (
+                  <div key={q.id} className={styles.sumRow}>
+                    <div className={styles.sumK}>{q.label}</div>
+                    <div className={styles.sumV}>{summaryDisplay(q, form)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
-              <AckReveal show={showFiveYearVision} ack="I like that.">
-                <Field label={`Where do you see ${bizName || "your business"} in the next 5 years?`} required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.fiveYearVision}
-                    onChange={(e) => update("fiveYearVision", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showJobsToCreate} ack="Exciting to hear.">
-                <RadioGroup
-                  label="How many jobs do you hope to create through your business?"
-                  required
-                  options={JOBS_TO_CREATE_OPTIONS}
-                  value={form.jobsToCreate}
-                  onChange={(v) => update("jobsToCreate", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showWhyApplying} ack="Great vision — now a few questions specifically about this grant.">
-                <>
-                  <SectionHeading title="Grant Application Questions" />
-                  <Field label="Why are you applying for the Globe Tech SME Grant & Business Support Program?" required>
-                    <textarea
-                      className="input min-h-[100px]"
-                      value={form.whyApplying}
-                      onChange={(e) => update("whyApplying", e.target.value)}
-                    />
-                  </Field>
-                </>
-              </AckReveal>
-
-              <AckReveal show={showWhySelected} ack="Noted.">
-                <Field label="Why should your business be selected for this grant opportunity?" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.whySelected}
-                    onChange={(e) => update("whySelected", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showWhatMakesDifferent} ack="Good case.">
-                <Field label="What makes your business different from others in your industry?" required>
-                  <textarea
-                    className="input min-h-[100px]"
-                    value={form.whatMakesDifferent}
-                    onChange={(e) => update("whatMakesDifferent", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <AckReveal show={showAppliedBefore} ack="That's a clear differentiator.">
-                <RadioGroup
-                  label="Have you applied for a grant opportunity before?"
-                  required
-                  options={["Yes", "No"]}
-                  value={form.appliedBefore}
-                  onChange={(v) => update("appliedBefore", v)}
-                />
-              </AckReveal>
-
-              {showAppliedBefore && form.appliedBefore === "Yes" && (
-                <AckReveal show={true} ack="Okay, tell me more.">
-                  <>
-                    <RadioGroup
-                      label="If yes, did you receive funding?"
-                      required
-                      options={["Yes", "No"]}
-                      value={form.receivedFundingBefore}
-                      onChange={(v) => update("receivedFundingBefore", v)}
-                    />
-                    <Field label="Please share details">
-                      <textarea
-                        className="input min-h-[80px]"
-                        value={form.priorFundingDetails}
-                        onChange={(e) => update("priorFundingDetails", e.target.value)}
-                      />
-                    </Field>
-                  </>
-                </AckReveal>
-              )}
-            </>
-          );
-        })()}
-
-        {step === 5 && (() => {
-          const showMentorship = filled(form.willingAcademy);
-          const showImprovementAreas = showMentorship && filled(form.willingMentorship);
-          const showHowHeard = showImprovementAreas && form.improvementAreas.length > 0;
-          const showFinal = showHowHeard && filled(form.howHeard);
-
-          return (
-            <>
-              <SectionHeading title="Business Training Commitment" />
-              <RadioGroup
-                label="Are you willing to participate in the Globe Tech Business Training if required?"
-                required
-                options={["Yes", "No"]}
-                value={form.willingAcademy}
-                onChange={(v) => update("willingAcademy", v)}
-              />
-
-              <AckReveal show={showMentorship} ack="Good.">
-                <RadioGroup
-                  label="Are you willing to commit time to mentorship sessions, assignments, and business improvement activities?"
-                  required
-                  options={["Yes", "No"]}
-                  value={form.willingMentorship}
-                  onChange={(v) => update("willingMentorship", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showImprovementAreas} ack="Great.">
-                <CheckboxGroup
-                  label="What areas of business development would you like to improve?"
-                  required
-                  options={IMPROVEMENT_AREA_OPTIONS}
-                  values={form.improvementAreas}
-                  onToggle={(v) => toggleArrayValue("improvementAreas", v)}
-                />
-              </AckReveal>
-
-              <AckReveal show={showHowHeard} ack="Just a couple more questions and you're done.">
-                <>
-                  <SectionHeading title="Referral Information" />
-                  <RadioGroup
-                    label="How did you hear about the Globe Tech SME Grant & Business Support Program?"
-                    required
-                    options={HOW_HEARD_OPTIONS}
-                    value={form.howHeard}
-                    onChange={(v) => update("howHeard", v)}
-                  />
-                </>
-              </AckReveal>
-
-              <AckReveal show={showFinal} ack={`Almost there, ${firstName || "friend"} — just the final confirmation left.`}>
-                <Field label="Do you belong to any entrepreneur/community/business network? (optional)">
-                  <textarea
-                    className="input min-h-[80px]"
-                    value={form.entrepreneurNetwork}
-                    onChange={(e) => update("entrepreneurNetwork", e.target.value)}
-                  />
-                </Field>
-              </AckReveal>
-
-              <Reveal show={showFinal} delay={0.3}>
-                <>
-                  <SectionHeading title="Final Declaration" />
-                  <label className="flex items-start gap-3 rounded-card border border-line bg-paper p-4 text-sm text-ink">
-                    <input
-                      type="checkbox"
-                      className="mt-0.5 h-4 w-4 shrink-0"
-                      checked={form.declarationAgreed}
-                      onChange={(e) => update("declarationAgreed", e.target.checked)}
-                    />
-                    <span>
-                      I confirm that the information provided in this application is accurate and
-                      complete. I understand that submission of this application does not guarantee
-                      funding and that selected applicants may undergo further evaluation.
-                    </span>
-                  </label>
-                </>
-              </Reveal>
-            </>
-          );
-        })()}
+          {stage === "done" && (
+            <div className={styles.doneScreen}>
+              <div className={styles.doneBadge}>✓</div>
+              <h2>You&rsquo;re in, {fname(form)}.</h2>
+              <p>
+                Check your email for the next step. Phase 2 is opening your FirstBank account —
+                enter the code below in the <strong>Referral</strong> field on FirstBank&rsquo;s
+                account-opening form. We&rsquo;ve also emailed this code to <strong>{form.email}</strong>.
+              </p>
+              <div className={styles.codeBlock}>
+                <p className={styles.label}>Your referral code</p>
+                <p className={styles.code}>{referralCode}</p>
+              </div>
+              <div className={styles.rowActions} style={{ maxWidth: 320, margin: "20px auto 0" }}>
+                <button className={`${styles.btn} ${styles.btnGhost}`} style={{ flex: 1 }} onClick={copyCode}>
+                  {copied ? "Copied ✓" : "Copy code"}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Honeypot — visually hidden, never in the tab order, present on every step */}
-        <div aria-hidden="true" className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden">
+        <div className={styles.composer}>
+          {stage === "welcome" && (
+            <div className={styles.composerInner}>
+              <div className={styles.rowActions}>
+                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={start}>
+                  Let&rsquo;s go →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {stage === "questions" && !typing && visible[qIndex] && (
+            <Composer
+              key={qIndex}
+              q={visible[qIndex]}
+              form={form}
+              onAnswer={submitAnswer}
+              lgaOtherMode={lgaOtherMode}
+              setLgaOtherMode={setLgaOtherMode}
+            />
+          )}
+
+          {stage === "summary" && !typing && (
+            <div className={styles.composerInner}>
+              {submitError && <p className={styles.errorText} style={{ marginBottom: 10 }}>{submitError}</p>}
+              <div className={styles.rowActions}>
+                <button
+                  className={`${styles.btn} ${styles.btnGhost}`}
+                  onClick={() => {
+                    setQIndex(0);
+                    setVisible(QUESTIONS.filter((q) => !q.showIf || q.showIf(form)));
+                    setStage("questions");
+                    askQuestion(0, form, QUESTIONS.filter((q) => !q.showIf || q.showIf(form)));
+                  }}
+                  disabled={submitting}
+                >
+                  ← Edit answers
+                </button>
+                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={finalSubmit} disabled={submitting}>
+                  {submitting ? "Submitting…" : "Submit application →"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Honeypot — visually hidden, never in the tab order, present throughout */}
+        <div aria-hidden="true" style={{ position: "absolute", left: -9999, width: 1, height: 1, overflow: "hidden" }}>
           <label htmlFor="website">Website</label>
           <input
             id="website"
@@ -1214,138 +719,261 @@ export default function ApplicationForm({ token }: Props) {
             onChange={(e) => setHoneypot(e.target.value)}
           />
         </div>
-
-        {errors && (
-          <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
-            {errors}
-          </p>
-        )}
-
-        <div className="flex gap-3 pt-2">
-          {step > 1 && (
-            <button type="button" onClick={goBack} className="btn-secondary flex-1">
-              Back
-            </button>
-          )}
-          {step < 5 && (
-            <button type="button" onClick={goNext} className="btn-primary flex-1">
-              Continue
-            </button>
-          )}
-          {step === 5 && (
-            <button type="submit" disabled={isPending} className="btn-primary flex-1">
-              {isPending ? "Submitting…" : "Submit application"}
-            </button>
-          )}
-        </div>
-      </form>
+      </div>
     </div>
   );
 }
 
-function SectionHeading({ title }: { title: string }) {
-  return (
-    <h3 className="!mt-8 border-b border-line pb-2 font-display text-sm font-semibold uppercase tracking-wide text-slate first:!mt-0">
-      {title}
-    </h3>
-  );
-}
+/* ============================================================
+   COMPOSER — renders the input for the current question
+   ============================================================ */
 
-function Field({
-  label,
-  required,
-  children,
+function Composer({
+  q,
+  form,
+  onAnswer,
+  lgaOtherMode,
+  setLgaOtherMode,
 }: {
-  label: string;
-  required?: boolean;
-  children: React.ReactNode;
+  q: Question;
+  form: FormState;
+  onAnswer: (value: FieldValue, display: string) => void;
+  lgaOtherMode: boolean;
+  setLgaOtherMode: (v: boolean) => void;
 }) {
-  return (
-    <label className="block">
-      <span className="mb-1.5 block text-sm font-medium text-ink">
-        {label} {required && <span className="text-gold">*</span>}
-      </span>
-      {children}
-    </label>
-  );
-}
+  const required = resolveRequired(q, form);
+  const initial: FieldValue =
+    q.type === "multiselect" ? [] : q.type === "number" ? 0 : q.type === "checkbox" ? false : "";
+  const [value, setValue] = useState<FieldValue>(initial);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement & HTMLSelectElement>(null);
 
-function RadioGroup({
-  label,
-  options,
-  value,
-  onChange,
-  required,
-}: {
-  label: string;
-  options: string[];
-  value: string;
-  onChange: (v: string) => void;
-  required?: boolean;
-}) {
-  return (
-    <fieldset>
-      <legend className="mb-2 text-sm font-medium text-ink">
-        {label} {required && <span className="text-gold">*</span>}
-      </legend>
-      <div className="space-y-2">
-        {options.map((opt) => (
-          <label
-            key={opt}
-            className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-              value === opt ? "border-brand bg-brand/5 text-ink" : "border-line text-ink hover:bg-paper"
-            }`}
-          >
-            <input
-              type="radio"
-              className="h-4 w-4 shrink-0"
-              checked={value === opt}
-              onChange={() => onChange(opt)}
-            />
-            {opt}
-          </label>
-        ))}
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  function attempt(v: FieldValue, display: string) {
+    const err = validateAnswer(q, v, form);
+    if (err) {
+      setError(err);
+      return;
+    }
+    onAnswer(v, display);
+  }
+
+  function handleContinue() {
+    if (q.type === "lga") {
+      const finalVal = lgaOtherMode ? (value as string) : (value as string);
+      attempt(finalVal, finalVal || "—");
+      return;
+    }
+    attempt(value, typeof value === "string" ? value : String(value));
+  }
+
+  function skip() {
+    onAnswer(q.type === "multiselect" ? [] : "", "—");
+  }
+
+  // Quick-reply: chips that auto-advance on click
+  if (q.type === "quickreply") {
+    const twoColClass = q.twoCol ? styles.chipHalf : "";
+    return (
+      <div className={styles.composerInner}>
+        <div className={styles.quickReplies}>
+          {(q.options ?? []).map((o) => (
+            <button key={o} className={`${styles.chip} ${twoColClass}`} onClick={() => attempt(o, o)}>
+              {o}
+            </button>
+          ))}
+        </div>
+        {error && <p className={styles.errorText}>{error}</p>}
       </div>
-    </fieldset>
-  );
-}
+    );
+  }
 
-function CheckboxGroup({
-  label,
-  options,
-  values,
-  onToggle,
-  required,
-}: {
-  label: string;
-  options: string[];
-  values: string[];
-  onToggle: (v: string) => void;
-  required?: boolean;
-}) {
-  return (
-    <fieldset>
-      <legend className="mb-2 text-sm font-medium text-ink">
-        {label} {required && <span className="text-gold">*</span>}
-      </legend>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {options.map((opt) => (
-          <label
-            key={opt}
-            className={`flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm transition-colors ${
-              values.includes(opt) ? "border-brand bg-brand/5 text-ink" : "border-line text-ink hover:bg-paper"
-            }`}
-          >
-            <input
-              type="checkbox"
-              className="h-4 w-4 shrink-0"
-              checked={values.includes(opt)}
-              onChange={() => onToggle(opt)}
-            />
-            {opt}
-          </label>
-        ))}
+  // Multiselect: toggle chips + explicit Continue
+  if (q.type === "multiselect") {
+    const arr = value as string[];
+    function toggle(o: string) {
+      setValue((prev) => {
+        const p = prev as string[];
+        return p.includes(o) ? p.filter((x) => x !== o) : [...p, o];
+      });
+    }
+    return (
+      <div className={styles.composerInner}>
+        <div className={styles.quickReplies}>
+          {(q.options ?? []).map((o) => (
+            <button
+              key={o}
+              className={`${styles.chip} ${arr.includes(o) ? styles.chipActive : ""}`}
+              onClick={() => toggle(o)}
+            >
+              {arr.includes(o) ? "✓ " : ""}
+              {o}
+            </button>
+          ))}
+        </div>
+        <div className={styles.rowActions}>
+          <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => attempt(arr, arr.join(", ") || "—")}>
+            Continue →
+          </button>
+        </div>
+        {error && <p className={styles.errorText}>{error}</p>}
       </div>
-    </fieldset>
+    );
+  }
+
+  // Checkbox declaration
+  if (q.type === "checkbox") {
+    return (
+      <div className={styles.composerInner}>
+        <label className={styles.checkline}>
+          <input
+            type="checkbox"
+            checked={value as boolean}
+            onChange={(e) => setValue(e.target.checked)}
+          />
+          <span>{q.checkboxText}</span>
+        </label>
+        <div className={styles.rowActions}>
+          <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => attempt(value, value ? "✓ Agreed" : "")}>
+            I agree, continue →
+          </button>
+        </div>
+        {error && <p className={styles.errorText}>{error}</p>}
+      </div>
+    );
+  }
+
+  // LGA — dependent dropdown with manual fallback
+  if (q.type === "lga") {
+    const lgaOptions = NIGERIA_LGAS_BY_STATE[form.stateOfResidence] ?? [];
+    return (
+      <div className={styles.composerInner}>
+        <select
+          ref={inputRef}
+          className={styles.fieldSelect}
+          value={lgaOtherMode ? LGA_OTHER : (value as string)}
+          onChange={(e) => {
+            if (e.target.value === LGA_OTHER) {
+              setLgaOtherMode(true);
+              setValue("");
+            } else {
+              setLgaOtherMode(false);
+              setValue(e.target.value);
+            }
+          }}
+        >
+          <option value="" disabled>
+            Select your LGA
+          </option>
+          {lgaOptions.map((l) => (
+            <option key={l} value={l}>
+              {l}
+            </option>
+          ))}
+          <option value={LGA_OTHER}>{LGA_OTHER}</option>
+        </select>
+        {lgaOtherMode && (
+          <input
+            className={styles.field}
+            style={{ marginTop: 10 }}
+            placeholder="Type your LGA"
+            value={value as string}
+            onChange={(e) => setValue(e.target.value)}
+          />
+        )}
+        <div className={styles.rowActions}>
+          <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={handleContinue}>
+            Continue →
+          </button>
+        </div>
+        {error && <p className={styles.errorText}>{error}</p>}
+      </div>
+    );
+  }
+
+  // Select dropdown
+  if (q.type === "select") {
+    return (
+      <div className={styles.composerInner}>
+        <select
+          ref={inputRef}
+          className={styles.fieldSelect}
+          value={value as string}
+          onChange={(e) => setValue(e.target.value)}
+        >
+          <option value="" disabled>
+            Choose one…
+          </option>
+          {(q.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+        <div className={styles.rowActions}>
+          <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={handleContinue}>
+            Continue →
+          </button>
+        </div>
+        {error && <p className={styles.errorText}>{error}</p>}
+      </div>
+    );
+  }
+
+  // Text-like: text / email / tel / date / number / textarea
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter" && q.type !== "textarea") {
+      e.preventDefault();
+      handleContinue();
+    }
+  }
+
+  return (
+    <div className={styles.composerInner}>
+      {!required && <div className={styles.hint}><b>Optional</b> — you can leave this blank and continue.</div>}
+
+      {q.type === "textarea" ? (
+        <textarea
+          ref={inputRef}
+          className={styles.field}
+          placeholder={q.placeholder}
+          value={value as string}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      ) : (
+        <input
+          ref={inputRef}
+          className={styles.field}
+          type={q.type === "number" ? "number" : q.type === "date" ? "date" : q.type === "tel" ? "tel" : q.type}
+          inputMode={q.type === "tel" ? "numeric" : undefined}
+          placeholder={q.placeholder}
+          max={q.id === "dateOfBirth" ? maxDobForMinAge() : undefined}
+          min={q.type === "number" ? 0 : undefined}
+          value={q.type === "number" && value === 0 ? "" : (value as string | number)}
+          onChange={(e) => {
+            if (q.type === "tel") setValue(e.target.value.replace(/\D/g, "").slice(0, 11));
+            else if (q.type === "number") setValue(Number(e.target.value) || 0);
+            else setValue(e.target.value);
+          }}
+          onKeyDown={handleKeyDown}
+        />
+      )}
+
+      <div className={styles.rowActions}>
+        {!required && (
+          <button className={`${styles.btn} ${styles.btnGhost}`} onClick={skip}>
+            Skip
+          </button>
+        )}
+        <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={handleContinue}>
+          Continue →
+        </button>
+      </div>
+      {error && <p className={styles.errorText}>{error}</p>}
+    </div>
   );
 }
