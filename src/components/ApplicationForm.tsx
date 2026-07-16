@@ -5,18 +5,11 @@ import Image from "next/image";
 import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
 import type { SubmitApplicationInput } from "@/app/apply/[token]/actions";
 import styles from "@/components/ChatApplicationForm.module.css";
+import { NIGERIA_STATES } from "@/lib/nigeriaStates";
 
 /* ============================================================
    DATA
    ============================================================ */
-
-const NIGERIA_STATES = [
-  "Abia", "Adamawa", "Akwa Ibom", "Anambra", "Bauchi", "Bayelsa", "Benue", "Borno",
-  "Cross River", "Delta", "Ebonyi", "Edo", "Ekiti", "Enugu", "FCT - Abuja", "Gombe",
-  "Imo", "Jigawa", "Kaduna", "Kano", "Katsina", "Kebbi", "Kogi", "Kwara", "Lagos",
-  "Nasarawa", "Niger", "Ogun", "Ondo", "Osun", "Oyo", "Plateau", "Rivers", "Sokoto",
-  "Taraba", "Yobe", "Zamfara",
-];
 
 const NIGERIA_LGAS_BY_STATE: Record<string, string[]> = {
   Abia: ["Aba North", "Aba South", "Arochukwu", "Bende", "Ikwuano", "Isiala Ngwa North", "Isiala Ngwa South", "Isuikwuato", "Obi Ngwa", "Ohafia", "Osisioma", "Ugwunagbo", "Ukwa East", "Ukwa West", "Umuahia North", "Umuahia South", "Umu Nneochi"],

@@ -62,6 +62,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // staffSetupTokens — short-lived tokens for the self-registration
+    // "set password" step. Only ever read/written by the Admin SDK
+    // (server actions), never directly by a client, admin or otherwise —
+    // the token itself is the credential, so no read rule is needed.
+    match /staffSetupTokens/{token} {
+      allow read: if false;
+      allow write: if false;
+    }
+
     // admins allowlist — managed by hand in the console, never via the app.
     match /admins/{uid} {
       allow read: if isSignedIn();

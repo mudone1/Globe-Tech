@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
+import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
 import { doc, getDoc } from "firebase/firestore";
 import { Eye, EyeOff } from "lucide-react";
 import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase-client";
 import AuthLayout from "@/components/AuthLayout";
-import { resolveLogin } from "@/app/admin/login/actions";
+import { resolveLogin, checkStaffActiveAfterLogin } from "@/app/admin/login/actions";
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
@@ -41,11 +41,32 @@ export default function LoginPage() {
       // "login failed" for what's actually a Firestore read problem.
       try {
         const adminDoc = await getDoc(doc(getFirebaseDb(), "admins", cred.user.uid));
-        router.push(adminDoc.exists() ? "/admin/staff" : "/dashboard");
+        if (adminDoc.exists()) {
+          router.push("/admin/staff");
+          return;
+        }
       } catch (adminCheckErr) {
         console.error("Admin check failed (login itself succeeded):", adminCheckErr);
         router.push("/admin/staff");
+        return;
       }
+
+      // Not an admin — a self-registered Regional Coordinator's account may
+      // still be awaiting approval, so confirm they're actually active
+      // before letting them into the dashboard.
+      const idToken = await cred.user.getIdToken();
+      const activeCheck = await checkStaffActiveAfterLogin(idToken);
+      if (!activeCheck.ok) {
+        await signOut(auth);
+        setError(activeCheck.error);
+        return;
+      }
+      if (!activeCheck.active) {
+        await signOut(auth);
+        setError(activeCheck.error);
+        return;
+      }
+      router.push("/dashboard");
     } catch (err) {
       console.error("Login failed:", err);
       const code = (err as { code?: string })?.code;
@@ -145,7 +166,7 @@ export default function LoginPage() {
       <p className="mt-6 text-center text-sm text-slate">
         Don&rsquo;t have an account?{" "}
         <Link href="/signup" className="font-medium text-brand hover:underline">
-          Sign up with your Staff ID
+          Sign up as a Globe-Tech coordinator
         </Link>
       </p>
     </AuthLayout>

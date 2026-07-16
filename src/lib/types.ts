@@ -8,10 +8,22 @@ export interface StaffRecord {
   phone: string;
   state: string;
   active: boolean;
-  sourceRow: number; // row number back in the onboarding Google Sheet
+  sourceRow: number; // row number back in the onboarding Google Sheet (0 for self-registered staff)
   reportsToCode?: string; // from the sheet's "Reports To Code" column, if present
   reportsToName?: string; // from the sheet's "Reports To Name" column, if present
   authUid?: string; // Firebase Auth UID, set once this staff member self-registers
+  registrationSource?: "sheet" | "self"; // "self" = registered directly on the website, not synced from the sheet
+  pendingApproval?: boolean; // true only for self-registered Regional Coordinators awaiting admin approval
+}
+
+// One row per self-registration awaiting the "set password" step. Short-lived —
+// deleted once used, so a leaked/guessed URL can't be replayed.
+export interface StaffSetupTokenRecord {
+  token: string; // doc ID
+  staffId: string;
+  createdAt: string;
+  expiresAt: string;
+  used: boolean;
 }
 
 export interface LinkTokenRecord {

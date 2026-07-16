@@ -6,7 +6,7 @@ import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
-import { runStaffSync } from "@/app/admin/staff/actions";
+import { runStaffSync, approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
 import type { StaffRecord, LinkTokenRecord } from "@/lib/types";
 
 interface Row extends StaffRecord {
@@ -29,6 +29,8 @@ function StaffTable() {
   const [filter, setFilter] = useState("");
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [isSyncing, startSync] = useTransition();
+  const [isReviewing, startReview] = useTransition();
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -85,6 +87,26 @@ function StaffTable() {
     });
   }
 
+  function handleApprove(staffId: string) {
+    setReviewingId(staffId);
+    startReview(async () => {
+      await approvePendingStaff(staffId);
+      await load();
+      setReviewingId(null);
+    });
+  }
+
+  function handleReject(staffId: string) {
+    setReviewingId(staffId);
+    startReview(async () => {
+      await rejectPendingStaff(staffId);
+      await load();
+      setReviewingId(null);
+    });
+  }
+
+  const pending = rows?.filter((r) => r.pendingApproval) ?? [];
+
   const filtered = rows?.filter(
     (r) =>
       !filter ||
@@ -127,6 +149,48 @@ function StaffTable() {
         </p>
       )}
 
+      {pending.length > 0 && (
+        <div className="mb-6 overflow-hidden rounded-card border border-gold/30 bg-goldSoft/40">
+          <div className="border-b border-gold/30 px-4 py-3">
+            <h2 className="font-display text-base font-semibold text-ink">
+              Pending approval ({pending.length})
+            </h2>
+            <p className="text-xs text-slate">
+              Regional Coordinators who signed up directly on the site — approve to activate their account.
+            </p>
+          </div>
+          <div className="divide-y divide-gold/20">
+            {pending.map((r) => (
+              <div key={r.staffId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="font-medium text-ink">{r.fullName}</p>
+                  <p className="text-xs text-slate">
+                    {r.email} · {r.phone} · {r.state}
+                  </p>
+                  <p className="font-mono text-xs text-slate">{r.staffId}</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleReject(r.staffId)}
+                    disabled={isReviewing && reviewingId === r.staffId}
+                    className="btn-secondary text-sm"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => handleApprove(r.staffId)}
+                    disabled={isReviewing && reviewingId === r.staffId}
+                    className="btn-primary text-sm"
+                  >
+                    {isReviewing && reviewingId === r.staffId ? "Working…" : "Approve"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="overflow-hidden rounded-card border border-line bg-white">
         <table className="w-full text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
@@ -165,7 +229,14 @@ function StaffTable() {
             {filtered?.map((r) => (
               <tr key={r.staffId} className="border-t border-line">
                 <td className="px-4 py-3 font-medium text-ink">{r.fullName}</td>
-                <td className="px-4 py-3 text-slate">{r.tier}</td>
+                <td className="px-4 py-3 text-slate">
+                  {r.tier}
+                  {r.pendingApproval && (
+                    <span className="ml-2 rounded-full bg-goldSoft px-2 py-0.5 text-xs font-medium text-ink">
+                      Pending
+                    </span>
+                  )}
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate">{r.staffId}</td>
                 <td className="px-4 py-3 font-mono text-xs text-slate">{r.link}</td>
                 <td className="px-4 py-3 text-right">

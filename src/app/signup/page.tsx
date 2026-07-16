@@ -1,118 +1,77 @@
-"use client";
-
-import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword } from "firebase/auth";
-import { Eye, EyeOff } from "lucide-react";
-import { getFirebaseAuth } from "@/lib/firebase-client";
-import AuthLayout from "@/components/AuthLayout";
-import { registerStaff } from "@/app/signup/actions";
+import { CheckCircle2 } from "lucide-react";
+import BrandMark from "@/components/BrandMark";
+import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
 
-export default function SignupPage() {
-  const [staffId, setStaffId] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const router = useRouter();
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setLoading(true);
-    try {
-      const result = await registerStaff({ staffId, email, password });
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      // Account now exists with this password — sign straight in.
-      await signInWithEmailAndPassword(getFirebaseAuth(), result.email, password);
-      router.push("/dashboard");
-    } catch {
-      setError("Something went wrong creating your account. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  }
-
+export default function SignupRolePage() {
   return (
-    <AuthLayout>
-      <h1 className="font-display text-2xl font-semibold text-ink">Create your account</h1>
-      <p className="mt-1 text-sm text-slate">
-        Use the Staff ID you were given when you registered with Globe-Tech.
-      </p>
+    <main className="min-h-screen bg-paper px-6 py-12">
+      <div className="mx-auto max-w-5xl">
+        <BrandMark size="sm" />
 
-      <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-ink">Staff ID</span>
-          <input
-            className="input font-mono"
-            placeholder="e.g. GBT07R/115545925"
-            value={staffId}
-            onChange={(e) => setStaffId(e.target.value)}
-            required
-          />
-        </label>
-
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-ink">Email</span>
-          <input
-            className="input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-            required
-          />
-          <span className="mt-1 block text-xs text-slate">
-            Use the same email you registered with, if you gave one.
-          </span>
-        </label>
-
-        <label className="block">
-          <span className="mb-1.5 block text-sm font-medium text-ink">Password</span>
-          <div className="relative">
-            <input
-              className="input pr-10"
-              type={showPassword ? "text" : "password"}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete="new-password"
-              minLength={6}
-              required
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword((s) => !s)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate hover:text-ink"
-              aria-label={showPassword ? "Hide password" : "Show password"}
-            >
-              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-            </button>
-          </div>
-          <span className="mt-1 block text-xs text-slate">At least 6 characters.</span>
-        </label>
-
-        {error && (
-          <p role="alert" className="rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
-            {error}
+        <header className="mt-8 max-w-2xl">
+          <p className="font-mono text-xs uppercase tracking-widest text-gold">Join Globe-Tech</p>
+          <h1 className="mt-2 font-display text-3xl font-semibold text-ink sm:text-4xl">
+            Which role are you signing up for?
+          </h1>
+          <p className="mt-3 text-slate">
+            Each role has a different place in the referral structure. Read through what each one
+            does before picking — you&rsquo;ll need a staff code from whoever you report to,
+            except for Regional Coordinators.
           </p>
-        )}
+        </header>
 
-        <button type="submit" disabled={loading} className="btn-primary w-full">
-          {loading ? "Creating account…" : "Create account"}
-        </button>
-      </form>
+        <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
+          {ROLE_ORDER.map((role) => {
+            const config = ROLE_CONFIGS[role];
+            return (
+              <div key={role} className="flex flex-col rounded-card border border-line bg-white p-6 shadow-sm">
+                <p className="font-mono text-xs uppercase tracking-widest text-gold">{config.tier}</p>
+                <h2 className="mt-1.5 font-display text-xl font-semibold text-ink">{config.title}</h2>
+                <p className="mt-1.5 text-sm text-slate">{config.tagline}</p>
 
-      <p className="mt-6 text-center text-sm text-slate">
-        Already have an account?{" "}
-        <Link href="/admin/login" className="font-medium text-brand hover:underline">
-          Log in
-        </Link>
-      </p>
-    </AuthLayout>
+                <p className="mt-4 text-xs font-medium uppercase tracking-wide text-slate">Reports to</p>
+                <p className="text-sm text-ink">{config.reportsTo}</p>
+
+                <ul className="mt-4 flex-1 space-y-2.5">
+                  {config.responsibilities.map((r) => (
+                    <li key={r} className="flex items-start gap-2 text-sm text-slate">
+                      <CheckCircle2 size={16} className="mt-0.5 shrink-0 text-brand" />
+                      <span>{r}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                {config.referrerTier ? (
+                  <p className="mt-5 rounded-md bg-paper px-3 py-2 text-xs text-slate">
+                    Needs a staff code from an active {config.referrerTier}.
+                  </p>
+                ) : (
+                  <p className="mt-5 rounded-md bg-goldSoft px-3 py-2 text-xs text-ink">
+                    No referrer code needed — subject to admin approval before you can log in.
+                  </p>
+                )}
+
+                <Link
+                  href={`/signup/register?role=${role}`}
+                  className="btn-primary mt-5 w-full text-center"
+                >
+                  Continue as {config.title}
+                </Link>
+              </div>
+            );
+          })}
+        </div>
+
+        <p className="mt-8 text-center text-sm text-slate">
+          Already have an account? <Link href="/admin/login" className="font-medium text-brand hover:underline">Log in</Link>
+          {" · "}
+          Have an existing Staff ID from before?{" "}
+          <Link href="/signup/legacy" className="font-medium text-brand hover:underline">
+            Use it here
+          </Link>
+        </p>
+      </div>
+    </main>
   );
 }
