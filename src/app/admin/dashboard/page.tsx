@@ -218,7 +218,13 @@ function Dashboard() {
     URL.revokeObjectURL(url);
   }
 
-  const tiers = ["all", "Regional Coordinator", "State Coordinator", "Marketing Officer"];
+  const tiers = useMemo(() => {
+    const present = new Set<string>();
+    staffById.forEach((s) => {
+      if (s.tier && s.tier.trim()) present.add(s.tier.trim());
+    });
+    return ["all", ...Array.from(present).sort()];
+  }, [staffById]);
 
   return (
     <div className="mx-auto max-w-7xl">
