@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { staffDocId } from "@/lib/staffId";
 import type { StaffRecord } from "@/lib/types";
 
 /**
@@ -20,7 +21,7 @@ export async function resolveLoginEmail(
   }
 
   // Otherwise treat it as a Staff ID.
-  const snap = await getAdminDb().collection("staff").doc(trimmed).get();
+  const snap = await getAdminDb().collection("staff").doc(staffDocId(trimmed)).get();
   if (!snap.exists) {
     return { ok: false, error: "No staff record found for that Staff ID." };
   }
@@ -69,7 +70,7 @@ export async function registerStaffAccount(
   }
 
   const db = getAdminDb();
-  const staffRef = db.collection("staff").doc(staffId);
+  const staffRef = db.collection("staff").doc(staffDocId(staffId));
   const staffSnap = await staffRef.get();
   if (!staffSnap.exists) {
     return {
@@ -133,7 +134,7 @@ export async function verifyStaffSession(
     if (!staffId) {
       return { ok: false, error: "This account isn't linked to a Staff ID." };
     }
-    const snap = await getAdminDb().collection("staff").doc(staffId).get();
+    const snap = await getAdminDb().collection("staff").doc(staffDocId(staffId)).get();
     if (!snap.exists) {
       return { ok: false, error: "Staff record not found." };
     }

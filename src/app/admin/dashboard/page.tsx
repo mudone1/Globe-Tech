@@ -31,7 +31,10 @@ function Dashboard() {
         ]);
         setApps(appsSnap.docs.map((d) => d.data() as ApplicationRecord));
         const map = new Map<string, StaffRecord>();
-        staffSnap.forEach((d) => map.set(d.id, d.data() as StaffRecord));
+        staffSnap.forEach((d) => {
+          const s = d.data() as StaffRecord;
+          map.set(s.staffId, s);
+        });
         setStaffById(map);
       } catch (err) {
         const message =

@@ -2,6 +2,7 @@ import "server-only";
 import { google } from "googleapis";
 import { customAlphabet } from "nanoid";
 import { getAdminDb } from "@/lib/firebase-admin";
+import { staffDocId } from "@/lib/staffId";
 
 const TOKEN_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
 const generateToken = customAlphabet(TOKEN_ALPHABET, 8);
@@ -141,7 +142,7 @@ export async function syncStaffFromSheet(): Promise<SyncResult> {
         const reportsToName =
           col.reportsToName !== -1 ? (row[col.reportsToName] ?? "").trim() : "";
 
-        await db.collection("staff").doc(staffId).set(
+        await db.collection("staff").doc(staffDocId(staffId)).set(
           {
             staffId,
             fullName,

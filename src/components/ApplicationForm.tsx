@@ -678,13 +678,7 @@ export default function ApplicationForm({ token }: Props) {
           {stage === "welcome" && (
             <div className={styles.welcomeHero}>
               {draft ? (
-                <>
-                  <h1>Welcome back, {fname(draft.form)} — we can continue from where you stopped.</h1>
-                  <p>
-                    Your progress was saved on this device. Pick up right where you left off, or
-                    start over if you&rsquo;d rather begin fresh.
-                  </p>
-                </>
+                <h1>Welcome back, {fname(draft.form)} — we can continue from where you stopped.</h1>
               ) : (
                 <>
                   <h1>Hi — I&rsquo;m here to walk you through your SME Grant application.</h1>

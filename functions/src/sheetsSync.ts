@@ -4,6 +4,14 @@ import { google } from "googleapis";
 import { customAlphabet } from "nanoid";
 import { db } from "./admin";
 
+// Staff IDs from the sheet can contain a "/" (e.g. "GBT01S/115545925"), which
+// Firestore doc IDs can't — see src/lib/staffId.ts in the main app for the
+// full explanation. Kept as a local helper here since this package doesn't
+// share modules with the Next.js app.
+function staffDocId(staffId: string): string {
+  return staffId.trim().replace(/\//g, "_");
+}
+
 const onboardingSheetId = defineString("ONBOARDING_SHEET_ID");
 const sheetsServiceAccountEmail = defineString("GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL");
 const sheetsPrivateKey = defineString("GOOGLE_SHEETS_PRIVATE_KEY");
@@ -118,7 +126,7 @@ export const syncOnboardingSheet = onSchedule(
         const reportsToName =
           col.reportsToName !== -1 ? (row[col.reportsToName] ?? "").trim() : "";
 
-        await db.collection("staff").doc(staffId).set(
+        await db.collection("staff").doc(staffDocId(staffId)).set(
           {
             staffId,
             fullName,
