@@ -161,13 +161,36 @@ function StaffTable() {
           </div>
           <div className="divide-y divide-gold/20">
             {pending.map((r) => (
-              <div key={r.staffId} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+              <div key={r.staffId} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
                 <div>
                   <p className="font-medium text-ink">{r.fullName}</p>
                   <p className="text-xs text-slate">
                     {r.email} · {r.phone} · {r.state}
                   </p>
                   <p className="font-mono text-xs text-slate">{r.staffId}</p>
+                  {r.homeAddress && <p className="mt-1 text-xs text-slate">{r.homeAddress}</p>}
+                  {(r.roleSpecialization || r.stateOfInfluence) && (
+                    <p className="mt-1 text-xs text-slate">
+                      {r.roleSpecialization}
+                      {r.roleSpecialization && r.stateOfInfluence ? " · " : ""}
+                      {r.stateOfInfluence ? `Influence: ${r.stateOfInfluence}` : ""}
+                    </p>
+                  )}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                    {r.idCardUrl ? (
+                      <a href={r.idCardUrl} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
+                        View ID card ↗
+                      </a>
+                    ) : (
+                      <span className="text-bad">No ID card uploaded</span>
+                    )}
+                    <span className={r.mouAccepted ? "text-brand" : "text-bad"}>
+                      MOU {r.mouAccepted ? "acknowledged" : "not acknowledged"}
+                    </span>
+                    <span className={r.declarationAccepted ? "text-brand" : "text-bad"}>
+                      Declaration {r.declarationAccepted ? "accepted" : "not accepted"}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <button

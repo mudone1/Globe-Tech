@@ -14,6 +14,20 @@ export interface StaffRecord {
   authUid?: string; // Firebase Auth UID, set once this staff member self-registers
   registrationSource?: "sheet" | "self"; // "self" = registered directly on the website, not synced from the sheet
   pendingApproval?: boolean; // true only for self-registered Regional Coordinators awaiting admin approval
+
+  // Onboarding-form fields, collected during self-registration (mirrors the
+  // Globe-Tech onboarding Google Forms — see the chat signup flow).
+  middleName?: string;
+  homeAddress?: string;
+  socialMediaPlatform?: string; // Facebook | Instagram | X | LinkedIn
+  socialMediaUsername?: string;
+  idCardUrl?: string; // Google Drive "view" link for the uploaded NIN/Voter's card
+  idCardFileName?: string;
+  mouAccepted?: boolean; // all 8 MOU statements acknowledged
+  declarationAccepted?: boolean;
+  stateToCoordinate?: string; // State Coordinator only — the state they'll operate in
+  roleSpecialization?: string; // Regional Coordinator only — "Globe-Tech Regional Marketing Lead" | "Data analysis"
+  stateOfInfluence?: string; // Regional Coordinator only
 }
 
 // One row per self-registration awaiting the "set password" step. Short-lived —

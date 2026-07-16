@@ -74,7 +74,39 @@ The original Firebase Cloud Functions version of this sync is still in `function
 reference, in case you upgrade to Blaze later and want automatic 15-minute syncing instead — it's
 not deployed or required for the app to work.
 
-## 3. Enabling Phase 3 (automated email + Sheets backup)
+## 3. Self-registration + Google Drive ID card uploads
+
+Staff no longer have to come through the sheet first — `/signup` lets Regional Coordinators,
+State Coordinators, and Marketing Officers register directly on the site (`src/lib/selfRegistration.ts`),
+building the reporting hierarchy from the referrer staff code they enter. Regional Coordinators
+need admin approval (`pendingApproval` on their record) before they can log in; the other two
+tiers are active immediately once their referrer code checks out. The sheet sync above still
+works and can be used in parallel for reporting/bulk import — it's no longer the only way in.
+
+The signup flow (`src/components/SignupChatForm.tsx`) collects each role's onboarding-form
+fields — including an NIN/Voter's card upload — and uploads that file to a shared Google Drive
+folder, reusing the **same service account** from the Sheets sync above (no separate Google
+Cloud project needed).
+
+**To wire it up (after the Sheets setup above is already done):**
+
+1. In Google Cloud Console → APIs & Services → Library, enable the **Google Drive API** (same
+   project as the Sheets API).
+2. Create a Drive folder for ID card uploads, and share it with the same service account
+   email (`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`) as **Editor**.
+3. Add one more environment variable (locally and in Vercel):
+   ```
+   GOOGLE_DRIVE_ID_CARDS_FOLDER_ID=   (the long ID from the folder's URL)
+   ```
+4. Redeploy.
+
+Uploaded files are set to "anyone with the link can view" so admins can open them straight from
+the pending-approval list on `/admin/staff` without being individually added to the folder — the
+link itself is never shown outside that authenticated admin page. If you'd rather lock this down
+further (e.g. only specific admin accounts, via a Google Shared Drive), that's a follow-up worth
+doing once you've confirmed the basic flow works.
+
+## 4. Enabling Phase 3 (automated email + Sheets backup)
 
 `functions/src/onApplicationCreated.ts` is fully written but needs:
 
@@ -86,7 +118,7 @@ Until those are set, new applications will still save correctly to Firestore —
 trigger an email or backup row yet, and the failure is logged to `emailLogs` rather than silently
 disappearing.
 
-## 4. What's intentionally not automated
+## 5. What's intentionally not automated
 
 Per the build plan, FirstBank's onboarding form is outside anything this project can script.
 Phase 4 is a manual hand-off: the referral code is shown in large text on the confirmation screen
@@ -94,7 +126,7 @@ and in the Phase-2 email, with plain instructions for where to paste it. There's
 FirstBank's form — an admin marks "Phase 2 complete" by hand once they confirm the applicant has
 opened the account.
 
-## 5. What to send back before the next phase
+## 6. What to send back before the next phase
 
 - **Before Phase 2 polish**: confirm if any fields beyond the six in the plan (name, email,
   phone, business name, business type, grant amount) should be on the application form.

@@ -34,10 +34,21 @@ async function generateStaffCode(tier: string, letter: string): Promise<string> 
 export interface RegisterNewStaffInput {
   role: SignupRole;
   fullName: string;
+  middleName?: string;
   email: string;
   phone: string;
   state: string;
+  homeAddress: string;
+  socialMediaPlatform?: string;
+  socialMediaUsername?: string;
+  idCardUrl?: string;
+  idCardFileName?: string;
+  mouAccepted: boolean;
+  declarationAccepted: boolean;
   referrerCode?: string;
+  stateToCoordinate?: string; // State Coordinator only
+  roleSpecialization?: string; // Regional Coordinator only
+  stateOfInfluence?: string; // Regional Coordinator only
 }
 
 export type RegisterNewStaffResult =
@@ -57,12 +68,19 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
   const email = input.email.trim().toLowerCase();
   const phone = input.phone.trim();
   const state = input.state.trim();
+  const homeAddress = input.homeAddress.trim();
 
-  if (!fullName || !email || !phone || !state) {
-    return { ok: false, error: "Fill in your name, email, phone, and state." };
+  if (!fullName || !email || !phone || !state || !homeAddress) {
+    return { ok: false, error: "Fill in your name, email, phone, address, and state." };
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
+  }
+  if (!input.mouAccepted) {
+    return { ok: false, error: "You'll need to acknowledge all the MOU statements to continue." };
+  }
+  if (!input.declarationAccepted) {
+    return { ok: false, error: "You'll need to confirm the declaration to continue." };
   }
 
   const db = getAdminDb();
@@ -111,9 +129,20 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
     active: !pendingApproval,
     sourceRow: 0,
     registrationSource: "self",
+    homeAddress,
+    mouAccepted: input.mouAccepted,
+    declarationAccepted: input.declarationAccepted,
     ...(pendingApproval ? { pendingApproval: true } : {}),
     ...(reportsToCode ? { reportsToCode } : {}),
     ...(reportsToName ? { reportsToName } : {}),
+    ...(input.middleName?.trim() ? { middleName: input.middleName.trim() } : {}),
+    ...(input.socialMediaPlatform?.trim() ? { socialMediaPlatform: input.socialMediaPlatform.trim() } : {}),
+    ...(input.socialMediaUsername?.trim() ? { socialMediaUsername: input.socialMediaUsername.trim() } : {}),
+    ...(input.idCardUrl ? { idCardUrl: input.idCardUrl } : {}),
+    ...(input.idCardFileName ? { idCardFileName: input.idCardFileName } : {}),
+    ...(input.stateToCoordinate?.trim() ? { stateToCoordinate: input.stateToCoordinate.trim() } : {}),
+    ...(input.roleSpecialization?.trim() ? { roleSpecialization: input.roleSpecialization.trim() } : {}),
+    ...(input.stateOfInfluence?.trim() ? { stateOfInfluence: input.stateOfInfluence.trim() } : {}),
   };
 
   await db.collection("staff").doc(staffDocId(staffId)).set(record);
