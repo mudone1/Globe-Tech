@@ -15,6 +15,48 @@ const NIGERIA_STATES = [
   "Taraba", "Yobe", "Zamfara",
 ];
 
+const NIGERIA_LGAS_BY_STATE: Record<string, string[]> = {
+  Abia: ["Aba North", "Aba South", "Arochukwu", "Bende", "Ikwuano", "Isiala Ngwa North", "Isiala Ngwa South", "Isuikwuato", "Obi Ngwa", "Ohafia", "Osisioma", "Ugwunagbo", "Ukwa East", "Ukwa West", "Umuahia North", "Umuahia South", "Umu Nneochi"],
+  Adamawa: ["Demsa", "Fufure", "Ganye", "Gayuk", "Gombi", "Grie", "Hong", "Jada", "Lamurde", "Madagali", "Maiha", "Mayo Belwa", "Michika", "Mubi North", "Mubi South", "Numan", "Shelleng", "Song", "Toungo", "Yola North", "Yola South"],
+  "Akwa Ibom": ["Abak", "Eastern Obolo", "Eket", "Esit Eket", "Essien Udim", "Etim Ekpo", "Etinan", "Ibeno", "Ibesikpo Asutan", "Ibiono Ibom", "Ika", "Ikono", "Ikot Abasi", "Ikot Ekpene", "Ini", "Itu", "Mbo", "Mkpat Enin", "Nsit Atai", "Nsit Ibom", "Nsit Ubium", "Obot Akara", "Okobo", "Onna", "Oron", "Oruk Anam", "Udung Uko", "Ukanafun", "Uruan", "Urue-Offong/Oruko", "Uyo"],
+  Anambra: ["Aguata", "Anambra East", "Anambra West", "Anaocha", "Awka North", "Awka South", "Ayamelum", "Dunukofia", "Ekwusigo", "Idemili North", "Idemili South", "Ihiala", "Njikoka", "Nnewi North", "Nnewi South", "Ogbaru", "Onitsha North", "Onitsha South", "Orumba North", "Orumba South", "Oyi"],
+  Bauchi: ["Alkaleri", "Bauchi", "Bogoro", "Damban", "Darazo", "Dass", "Gamawa", "Ganjuwa", "Giade", "Itas/Gadau", "Jama'are", "Katagum", "Kirfi", "Misau", "Ningi", "Shira", "Tafawa Balewa", "Toro", "Warji", "Zaki"],
+  Bayelsa: ["Brass", "Ekeremor", "Kolokuma/Opokuma", "Nembe", "Ogbia", "Sagbama", "Southern Ijaw", "Yenagoa"],
+  Benue: ["Ado", "Agatu", "Apa", "Buruku", "Gboko", "Guma", "Gwer East", "Gwer West", "Katsina-Ala", "Konshisha", "Kwande", "Logo", "Makurdi", "Obi", "Ogbadibo", "Ohimini", "Oju", "Okpokwu", "Otukpo", "Tarka", "Ukum", "Ushongo", "Vandeikya"],
+  Borno: ["Abadam", "Askira/Uba", "Bama", "Bayo", "Biu", "Chibok", "Damboa", "Dikwa", "Gubio", "Guzamala", "Gwoza", "Hawul", "Jere", "Kaga", "Kala/Balge", "Konduga", "Kukawa", "Kwaya Kusar", "Mafa", "Magumeri", "Maiduguri", "Marte", "Mobbar", "Monguno", "Ngala", "Nganzai", "Shani"],
+  "Cross River": ["Abi", "Akamkpa", "Akpabuyo", "Bakassi", "Bekwarra", "Biase", "Boki", "Calabar Municipal", "Calabar South", "Etung", "Ikom", "Obanliku", "Obubra", "Obudu", "Odukpani", "Ogoja", "Yakuur", "Yala"],
+  Delta: ["Aniocha North", "Aniocha South", "Bomadi", "Burutu", "Ethiope East", "Ethiope West", "Ika North East", "Ika South", "Isoko North", "Isoko South", "Ndokwa East", "Ndokwa West", "Okpe", "Oshimili North", "Oshimili South", "Patani", "Sapele", "Udu", "Ughelli North", "Ughelli South", "Ukwuani", "Uvwie", "Warri North", "Warri South", "Warri South West"],
+  Ebonyi: ["Abakaliki", "Afikpo North", "Afikpo South", "Ebonyi", "Ezza North", "Ezza South", "Ikwo", "Ishielu", "Ivo", "Izzi", "Ohaozara", "Ohaukwu", "Onicha"],
+  Edo: ["Akoko-Edo", "Egor", "Esan Central", "Esan North-East", "Esan South-East", "Esan West", "Etsako Central", "Etsako East", "Etsako West", "Igueben", "Ikpoba Okha", "Orhionmwon", "Oredo", "Ovia North-East", "Ovia South-West", "Owan East", "Owan West", "Uhunmwonde"],
+  Ekiti: ["Ado Ekiti", "Efon", "Ekiti East", "Ekiti South-West", "Ekiti West", "Emure", "Gbonyin", "Ido Osi", "Ijero", "Ikere", "Ikole", "Ilejemeje", "Irepodun/Ifelodun", "Ise/Orun", "Moba", "Oye"],
+  Enugu: ["Aninri", "Awgu", "Enugu East", "Enugu North", "Enugu South", "Ezeagu", "Igbo Etiti", "Igbo Eze North", "Igbo Eze South", "Isi Uzo", "Nkanu East", "Nkanu West", "Nsukka", "Oji River", "Udenu", "Udi", "Uzo Uwani"],
+  "FCT - Abuja": ["Abaji", "Abuja Municipal", "Bwari", "Gwagwalada", "Kuje", "Kwali"],
+  Gombe: ["Akko", "Balanga", "Billiri", "Dukku", "Funakaye", "Gombe", "Kaltungo", "Kwami", "Nafada", "Shongom", "Yamaltu/Deba"],
+  Imo: ["Aboh Mbaise", "Ahiazu Mbaise", "Ehime Mbano", "Ezinihitte", "Ideato North", "Ideato South", "Ihitte/Uboma", "Ikeduru", "Isiala Mbano", "Isu", "Mbaitoli", "Ngor Okpala", "Njaba", "Nkwerre", "Nwangele", "Obowo", "Oguta", "Ohaji/Egbema", "Okigwe", "Orlu", "Orsu", "Oru East", "Oru West", "Owerri Municipal", "Owerri North", "Owerri West", "Unuimo"],
+  Jigawa: ["Auyo", "Babura", "Biriniwa", "Birnin Kudu", "Buji", "Dutse", "Gagarawa", "Garki", "Gumel", "Guri", "Gwaram", "Gwiwa", "Hadejia", "Jahun", "Kafin Hausa", "Kaugama", "Kazaure", "Kiri Kasama", "Kiyawa", "Maigatari", "Malam Madori", "Miga", "Ringim", "Roni", "Sule Tankarkar", "Taura", "Yankwashi"],
+  Kaduna: ["Birnin Gwari", "Chikun", "Giwa", "Igabi", "Ikara", "Jaba", "Jema'a", "Kachia", "Kaduna North", "Kaduna South", "Kagarko", "Kajuru", "Kaura", "Kauru", "Kubau", "Kudan", "Lere", "Makarfi", "Sabon Gari", "Sanga", "Soba", "Zangon Kataf", "Zaria"],
+  Kano: ["Ajingi", "Albasu", "Bagwai", "Bebeji", "Bichi", "Bunkure", "Dala", "Dambatta", "Dawakin Kudu", "Dawakin Tofa", "Doguwa", "Fagge", "Gabasawa", "Garko", "Garun Mallam", "Gaya", "Gezawa", "Gwale", "Gwarzo", "Kabo", "Kano Municipal", "Karaye", "Kibiya", "Kiru", "Kumbotso", "Kunchi", "Kura", "Madobi", "Makoda", "Minjibir", "Nasarawa", "Rano", "Rimin Gado", "Rogo", "Shanono", "Sumaila", "Takai", "Tarauni", "Tofa", "Tsanyawa", "Tudun Wada", "Ungogo", "Warawa", "Wudil"],
+  Katsina: ["Bakori", "Batagarawa", "Batsari", "Baure", "Bindawa", "Charanchi", "Dan Musa", "Dandume", "Danja", "Daura", "Dutsi", "Dutsin-Ma", "Faskari", "Funtua", "Ingawa", "Jibia", "Kafur", "Kaita", "Kankara", "Kankia", "Katsina", "Kurfi", "Kusada", "Mai'Adua", "Malumfashi", "Mani", "Mashi", "Matazu", "Musawa", "Rimi", "Sabuwa", "Safana", "Sandamu", "Zango"],
+  Kebbi: ["Aleiro", "Arewa Dandi", "Argungu", "Augie", "Bagudo", "Birnin Kebbi", "Bunza", "Dandi", "Fakai", "Gwandu", "Jega", "Kalgo", "Koko/Besse", "Maiyama", "Ngaski", "Sakaba", "Shanga", "Suru", "Wasagu/Danko", "Yauri", "Zuru"],
+  Kogi: ["Adavi", "Ajaokuta", "Ankpa", "Bassa", "Dekina", "Ibaji", "Idah", "Igalamela Odolu", "Ijumu", "Kabba/Bunu", "Kogi", "Lokoja", "Mopa Muro", "Ofu", "Ogori/Magongo", "Okehi", "Okene", "Olamaboro", "Omala", "Yagba East", "Yagba West"],
+  Kwara: ["Asa", "Baruten", "Edu", "Ekiti", "Ifelodun", "Ilorin East", "Ilorin South", "Ilorin West", "Irepodun", "Isin", "Kaiama", "Moro", "Offa", "Oke Ero", "Oyun", "Pategi"],
+  Lagos: ["Agege", "Ajeromi-Ifelodun", "Alimosho", "Amuwo-Odofin", "Apapa", "Badagry", "Epe", "Eti Osa", "Ibeju-Lekki", "Ifako-Ijaiye", "Ikeja", "Ikorodu", "Kosofe", "Lagos Island", "Lagos Mainland", "Mushin", "Ojo", "Oshodi-Isolo", "Shomolu", "Surulere"],
+  Nasarawa: ["Akwanga", "Awe", "Doma", "Karu", "Keana", "Keffi", "Kokona", "Lafia", "Nasarawa", "Nasarawa Egon", "Obi", "Toto", "Wamba"],
+  Niger: ["Agaie", "Agwara", "Bida", "Borgu", "Bosso", "Chanchaga", "Edati", "Gbako", "Gurara", "Katcha", "Kontagora", "Lapai", "Lavun", "Magama", "Mariga", "Mashegu", "Mokwa", "Moya", "Paikoro", "Rafi", "Rijau", "Shiroro", "Suleja", "Tafa", "Wushishi"],
+  Ogun: ["Abeokuta North", "Abeokuta South", "Ado-Odo/Ota", "Ewekoro", "Ifo", "Ijebu East", "Ijebu North", "Ijebu North East", "Ijebu Ode", "Ikenne", "Imeko Afon", "Ipokia", "Obafemi Owode", "Odeda", "Odogbolu", "Ogun Waterside", "Remo North", "Shagamu", "Yewa North", "Yewa South"],
+  Ondo: ["Akoko North-East", "Akoko North-West", "Akoko South-East", "Akoko South-West", "Akure North", "Akure South", "Ese Odo", "Idanre", "Ifedore", "Ilaje", "Ile Oluji/Okeigbo", "Irele", "Odigbo", "Okitipupa", "Ondo East", "Ondo West", "Ose", "Owo"],
+  Osun: ["Aiyedaade", "Aiyedire", "Atakunmosa East", "Atakunmosa West", "Boluwaduro", "Boripe", "Ede North", "Ede South", "Egbedore", "Ejigbo", "Ife Central", "Ife East", "Ife North", "Ife South", "Ifedayo", "Ifelodun", "Ila", "Ilesa East", "Ilesa West", "Irepodun", "Irewole", "Isokan", "Iwo", "Obokun", "Odo Otin", "Ola Oluwa", "Olorunda", "Oriade", "Orolu", "Osogbo"],
+  Oyo: ["Afijio", "Akinyele", "Atiba", "Atisbo", "Egbeda", "Ibadan North", "Ibadan North-East", "Ibadan North-West", "Ibadan South-East", "Ibadan South-West", "Ibarapa Central", "Ibarapa East", "Ibarapa North", "Ido", "Irepo", "Iseyin", "Itesiwaju", "Iwajowa", "Kajola", "Lagelu", "Ogbomosho North", "Ogbomosho South", "Ogo Oluwa", "Olorunsogo", "Oluyole", "Ona Ara", "Orelope", "Ori Ire", "Oyo East", "Oyo West", "Saki East", "Saki West", "Surulere"],
+  Plateau: ["Barkin Ladi", "Bassa", "Bokkos", "Jos East", "Jos North", "Jos South", "Kanam", "Kanke", "Langtang North", "Langtang South", "Mangu", "Mikang", "Pankshin", "Qua'an Pan", "Riyom", "Shendam", "Wase"],
+  Rivers: ["Abua/Odual", "Ahoada East", "Ahoada West", "Akuku-Toru", "Andoni", "Asari-Toru", "Bonny", "Degema", "Eleme", "Emuoha", "Etche", "Gokana", "Ikwerre", "Khana", "Obio/Akpor", "Ogba/Egbema/Ndoni", "Ogu/Bolo", "Okrika", "Omuma", "Opobo/Nkoro", "Oyigbo", "Port Harcourt", "Tai"],
+  Sokoto: ["Binji", "Bodinga", "Dange Shuni", "Gada", "Goronyo", "Gudu", "Gwadabawa", "Illela", "Isa", "Kebbe", "Kware", "Rabah", "Sabon Birni", "Shagari", "Silame", "Sokoto North", "Sokoto South", "Tambuwal", "Tangaza", "Tureta", "Wamako", "Wurno", "Yabo"],
+  Taraba: ["Ardo Kola", "Bali", "Donga", "Gashaka", "Gassol", "Ibi", "Jalingo", "Karim Lamido", "Kumi", "Lau", "Sardauna", "Takum", "Ussa", "Wukari", "Yorro", "Zing"],
+  Yobe: ["Bade", "Bursari", "Damaturu", "Fika", "Fune", "Geidam", "Gujba", "Gulani", "Jakusko", "Karasuwa", "Machina", "Nangere", "Nguru", "Potiskum", "Tarmuwa", "Yunusari", "Yusufari"],
+  Zamfara: ["Anka", "Bakura", "Birnin Magaji/Kiyaw", "Bukkuyum", "Bungudu", "Gummi", "Gusau", "Kaura Namoda", "Maradun", "Maru", "Shinkafi", "Talata Mafara", "Tsafe", "Zurmi"],
+};
+
+const LGA_OTHER = "My LGA isn't listed";
+
 const INDUSTRIES = [
   "Agriculture & Agribusiness", "Technology & Software", "Education", "Healthcare",
   "FinTech", "Manufacturing", "Retail & E-commerce", "Fashion & Beauty",
@@ -109,6 +151,27 @@ function filled(value: string | number | boolean | string[] | undefined): boolea
   if (Array.isArray(value)) return value.length > 0;
   if (typeof value === "boolean") return value;
   return false;
+}
+
+/** Age in whole years as of today, given a YYYY-MM-DD date of birth string. */
+function ageFromDob(dob: string): number {
+  const birth = new Date(dob);
+  if (Number.isNaN(birth.getTime())) return 0;
+  const today = new Date();
+  let age = today.getFullYear() - birth.getFullYear();
+  const monthDiff = today.getMonth() - birth.getMonth();
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
+    age -= 1;
+  }
+  return age;
+}
+
+/** The latest date of birth that still makes someone at least MIN_AGE_YEARS today, as YYYY-MM-DD. */
+const MIN_AGE_YEARS = 15;
+function maxDobForMinAge(): string {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - MIN_AGE_YEARS);
+  return d.toISOString().slice(0, 10);
 }
 
 /** Reveals its children with a soft fade/slide-in once `show` becomes true, so each
@@ -231,6 +294,7 @@ const initialState: FormState = {
 export default function ApplicationForm({ token }: Props) {
   const [step, setStep] = useState(1);
   const [form, setForm] = useState<FormState>(initialState);
+  const [lgaOtherMode, setLgaOtherMode] = useState(false);
   const [honeypot, setHoneypot] = useState("");
   const [errors, setErrors] = useState<string | null>(null);
   const [submittedCode, setSubmittedCode] = useState<string | null>(null);
@@ -263,10 +327,11 @@ export default function ApplicationForm({ token }: Props) {
     if (!form.applicantName.trim()) return "Enter your full name.";
     if (!form.gender) return "Select your gender.";
     if (!form.dateOfBirth) return "Enter your date of birth.";
-    if (!/^[0-9+()\-\s]{7,}$/.test(form.phone)) return "Enter a valid phone number.";
+    if (ageFromDob(form.dateOfBirth) < MIN_AGE_YEARS) return `You must be at least ${MIN_AGE_YEARS} years old to apply.`;
+    if (form.phone.length !== 11) return "Enter an 11-digit phone number.";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) return "Enter a valid email address.";
     if (!form.stateOfResidence) return "Select your state of residence.";
-    if (!form.lga.trim()) return "Enter your Local Government Area.";
+    if (!form.lga.trim()) return "Select your Local Government Area.";
     if (!form.currentStatus) return "Select what best describes your current status.";
     if (!form.hasPriorBusiness) return "Let us know if you've previously started or managed a business.";
     if (form.hasPriorBusiness === "Yes" && !form.priorBusinessDescription.trim())
@@ -283,6 +348,8 @@ export default function ApplicationForm({ token }: Props) {
     if (!form.operatingDuration) return "Select how long your business has been operating.";
     if (!form.dateEstablished) return "Enter the date your business was established.";
     if (!form.registrationStatus) return "Select your business registration status.";
+    if (form.registrationStatus.startsWith("Yes") && !form.cacNumber.trim())
+      return "Enter your CAC registration number.";
     if (!form.operatingLocation) return "Select where your business currently operates.";
     if (!form.employeeCount) return "Select how many people currently work in your business.";
     return null;
@@ -318,7 +385,7 @@ export default function ApplicationForm({ token }: Props) {
   }
 
   function validateStep5(): string | null {
-    if (!form.willingAcademy) return "Let us know if you're willing to join the Business Academy training.";
+    if (!form.willingAcademy) return "Let us know if you're willing to join the Business Training.";
     if (!form.willingMentorship) return "Let us know if you can commit time to mentorship and assignments.";
     if (form.improvementAreas.length === 0) return "Select at least one area of business development to improve.";
     if (!form.howHeard) return "Select how you heard about the program.";
@@ -465,8 +532,9 @@ export default function ApplicationForm({ token }: Props) {
         {step === 1 && (() => {
           const showGender = filled(form.applicantName);
           const showDob = showGender && filled(form.gender);
-          const showPhone = showDob && filled(form.dateOfBirth);
-          const showEmail = showPhone && filled(form.phone);
+          const dobValid = filled(form.dateOfBirth) && ageFromDob(form.dateOfBirth) >= MIN_AGE_YEARS;
+          const showPhone = showDob && dobValid;
+          const showEmail = showPhone && form.phone.length === 11;
           const showState = showEmail && filled(form.email);
           const showLga = showState && filled(form.stateOfResidence);
           const showOptionalContacts = showLga && filled(form.lga);
@@ -489,7 +557,7 @@ export default function ApplicationForm({ token }: Props) {
                 <RadioGroup
                   label="Gender"
                   required
-                  options={["Male", "Female", "Prefer not to say"]}
+                  options={["Male", "Female"]}
                   value={form.gender}
                   onChange={(v) => update("gender", v)}
                 />
@@ -500,9 +568,15 @@ export default function ApplicationForm({ token }: Props) {
                   <input
                     className="input"
                     type="date"
+                    max={maxDobForMinAge()}
                     value={form.dateOfBirth}
                     onChange={(e) => update("dateOfBirth", e.target.value)}
                   />
+                  {filled(form.dateOfBirth) && !dobValid && (
+                    <p className="mt-1.5 text-xs text-red-600">
+                      You must be at least {MIN_AGE_YEARS} years old to apply.
+                    </p>
+                  )}
                 </Field>
               </AckReveal>
 
@@ -511,10 +585,15 @@ export default function ApplicationForm({ token }: Props) {
                   <input
                     className="input"
                     type="tel"
+                    inputMode="numeric"
+                    placeholder="08012345678"
                     value={form.phone}
-                    onChange={(e) => update("phone", e.target.value)}
+                    onChange={(e) => update("phone", e.target.value.replace(/\D/g, "").slice(0, 11))}
                     autoComplete="tel"
                   />
+                  {filled(form.phone) && form.phone.length !== 11 && (
+                    <p className="mt-1.5 text-xs text-red-600">Enter exactly 11 digits.</p>
+                  )}
                 </Field>
               </AckReveal>
 
@@ -535,7 +614,11 @@ export default function ApplicationForm({ token }: Props) {
                   <select
                     className="input"
                     value={form.stateOfResidence}
-                    onChange={(e) => update("stateOfResidence", e.target.value)}
+                    onChange={(e) => {
+                      update("stateOfResidence", e.target.value);
+                      update("lga", "");
+                      setLgaOtherMode(false);
+                    }}
                   >
                     <option value="">Select a state</option>
                     {NIGERIA_STATES.map((s) => (
@@ -549,7 +632,35 @@ export default function ApplicationForm({ token }: Props) {
 
               <AckReveal show={showLga} ack="Nice — just need your LGA to pinpoint that.">
                 <Field label="Local Government Area" required>
-                  <input className="input" value={form.lga} onChange={(e) => update("lga", e.target.value)} />
+                  <select
+                    className="input"
+                    value={lgaOtherMode ? LGA_OTHER : form.lga}
+                    onChange={(e) => {
+                      if (e.target.value === LGA_OTHER) {
+                        setLgaOtherMode(true);
+                        update("lga", "");
+                      } else {
+                        setLgaOtherMode(false);
+                        update("lga", e.target.value);
+                      }
+                    }}
+                  >
+                    <option value="">Select your LGA</option>
+                    {(NIGERIA_LGAS_BY_STATE[form.stateOfResidence] ?? []).map((l) => (
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
+                    ))}
+                    <option value={LGA_OTHER}>{LGA_OTHER}</option>
+                  </select>
+                  {lgaOtherMode && (
+                    <input
+                      className="input mt-2"
+                      placeholder="Type your LGA"
+                      value={form.lga}
+                      onChange={(e) => update("lga", e.target.value)}
+                    />
+                  )}
                 </Field>
               </AckReveal>
 
@@ -620,6 +731,7 @@ export default function ApplicationForm({ token }: Props) {
           const showDateEstablished = showDuration && filled(form.operatingDuration);
           const showRegistrationStatus = showDateEstablished && filled(form.dateEstablished);
           const showAfterRegistration = showRegistrationStatus && filled(form.registrationStatus);
+          const cacRequired = form.registrationStatus.startsWith("Yes");
           const showEmployeeCount = showAfterRegistration && filled(form.operatingLocation);
 
           return (
@@ -715,13 +827,16 @@ export default function ApplicationForm({ token }: Props) {
                 />
               </AckReveal>
 
-              <AckReveal show={showAfterRegistration} ack="Got it.">
-                <Field label="CAC registration number (if available)">
+              <AckReveal show={showAfterRegistration} ack={cacRequired ? "Great, let's get that number down." : "Got it."}>
+                <Field label="CAC registration number" required={cacRequired}>
                   <input
                     className="input"
                     value={form.cacNumber}
                     onChange={(e) => update("cacNumber", e.target.value)}
                   />
+                  {!cacRequired && (
+                    <p className="mt-1.5 text-xs text-slate">Optional — leave blank if you don&rsquo;t have one yet.</p>
+                  )}
                 </Field>
               </AckReveal>
 
@@ -1012,9 +1127,9 @@ export default function ApplicationForm({ token }: Props) {
 
           return (
             <>
-              <SectionHeading title="Business Academy Commitment" />
+              <SectionHeading title="Business Training Commitment" />
               <RadioGroup
-                label="Are you willing to participate in the Globe Tech Business Academy training sessions if selected?"
+                label="Are you willing to participate in the Globe Tech Business Training if required?"
                 required
                 options={["Yes", "No"]}
                 value={form.willingAcademy}
