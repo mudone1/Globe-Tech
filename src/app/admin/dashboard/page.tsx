@@ -20,7 +20,10 @@ import { FileText, Wallet, CheckCircle2, TrendingUp, Download, type LucideIcon }
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
+import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
 import type { ApplicationRecord, StaffRecord, VisitRecord } from "@/lib/types";
+
+const CANONICAL_TIERS = ROLE_ORDER.map((r) => ROLE_CONFIGS[r].tier);
 
 const CHART_COLORS = ["#0E7A3A", "#C8952A", "#7FA688", "#054A26", "#B3392C", "#4B5B52", "#1E7A4C", "#D7E4D9"];
 
@@ -223,7 +226,10 @@ function Dashboard() {
     staffById.forEach((s) => {
       if (s.tier && s.tier.trim()) present.add(s.tier.trim());
     });
-    return ["all", ...Array.from(present).sort()];
+    const extra = Array.from(present)
+      .filter((t) => !(CANONICAL_TIERS as string[]).includes(t))
+      .sort();
+    return ["all", ...CANONICAL_TIERS, ...extra];
   }, [staffById]);
 
   return (

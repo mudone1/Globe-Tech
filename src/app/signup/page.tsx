@@ -14,11 +14,6 @@ export default function SignupRolePage() {
           <h1 className="mt-2 font-display text-3xl font-semibold text-ink sm:text-4xl">
             Which role are you signing up for?
           </h1>
-          <p className="mt-3 text-slate">
-            Each role has a different place in the referral structure. Read through what each one
-            does before picking — you&rsquo;ll need a staff code from whoever you report to,
-            except for Regional Coordinators.
-          </p>
         </header>
 
         <div className="mt-10 grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -42,13 +37,9 @@ export default function SignupRolePage() {
                   ))}
                 </ul>
 
-                {config.referrerTier ? (
+                {config.referrerTier && (
                   <p className="mt-5 rounded-md bg-paper px-3 py-2 text-xs text-slate">
                     Needs a staff code from an active {config.referrerTier}.
-                  </p>
-                ) : (
-                  <p className="mt-5 rounded-md bg-goldSoft px-3 py-2 text-xs text-ink">
-                    No referrer code needed — subject to admin approval before you can log in.
                   </p>
                 )}
 
