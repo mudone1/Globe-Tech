@@ -6,11 +6,7 @@ export default function Home() {
     <main className="flex min-h-screen flex-col items-center justify-center px-6 text-center">
       <BrandMark size="lg" withWordmark={false} href="" />
       <p className="mt-5 font-mono text-xs uppercase tracking-widest text-gold">Globe-Tech</p>
-      <h1 className="mt-3 font-display text-3xl font-semibold text-ink">SME Grant Referral Platform</h1>
-      <p className="mt-3 max-w-md text-slate">
-        Applicants reach this platform through a staff member&rsquo;s personal referral link.
-        Coordinators and marketers manage their referrals below.
-      </p>
+      <h1 className="mt-3 font-display text-3xl font-semibold text-ink">Globe-Tech SME Grant Portal</h1>
       <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
         <Link href="/admin/login" className="btn-primary">
           Log in
