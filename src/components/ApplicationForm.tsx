@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import Image from "next/image";
 import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
 import type { SubmitApplicationInput } from "@/app/apply/[token]/actions";
 import styles from "@/components/ChatApplicationForm.module.css";
@@ -461,6 +462,7 @@ export default function ApplicationForm({ token }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [draft, setDraft] = useState<SavedDraft | null>(null);
   const threadRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
   const transcriptLenRef = useRef(0);
   const draftKey = `gt_grant_draft_${token}`;
 
@@ -511,7 +513,12 @@ export default function ApplicationForm({ token }: Props) {
   }, [transcript]);
 
   useEffect(() => {
-    threadRef.current?.scrollTo({ top: threadRef.current.scrollHeight, behavior: "smooth" });
+    // The thread grows the whole page rather than scrolling internally, so scrollIntoView
+    // on a bottom anchor (which finds the real scrolling ancestor) is what actually works —
+    // fires as soon as a message is sent so the next question drops in already in view.
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
   }, [transcript, typing, qIndex, stage, expanded]);
 
   function askQuestion(idx: number, nextForm: FormState, nextVisible: Question[]) {
@@ -653,7 +660,9 @@ export default function ApplicationForm({ token }: Props) {
               <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
           </button>
-          <div className={styles.mark}>GT</div>
+          <div className={styles.mark}>
+            <Image src="/logo.png" alt="Globe-Tech" width={34} height={34} className={styles.markImg} priority />
+          </div>
           <div className={styles.headText}>
             <div className={styles.org}>Globe-Tech · SME Grant Program</div>
             <div className={styles.roleLabel}>{headerLabel}</div>
@@ -756,6 +765,7 @@ export default function ApplicationForm({ token }: Props) {
               </div>
             </div>
           )}
+          <div ref={bottomRef} />
         </div>
 
         <div className={styles.composer}>
