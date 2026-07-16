@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import {
   ResponsiveContainer,
@@ -20,6 +20,8 @@ import { FileText, Wallet, CheckCircle2, TrendingUp, Download, type LucideIcon }
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
+import CountUp from "@/components/CountUp";
+import Skeleton from "@/components/Skeleton";
 import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
 import type { ApplicationRecord, StaffRecord, VisitRecord } from "@/lib/types";
 
@@ -253,44 +255,62 @@ function Dashboard() {
           {error}
         </p>
       )}
-      {!apps && !error && <p className="text-slate">Loading…</p>}
+
+      {!apps && !error && (
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-line bg-white p-5 shadow-sm">
+              <Skeleton className="h-10 w-10 rounded-xl" />
+              <Skeleton className="mt-4 h-7 w-24" />
+              <Skeleton className="mt-2 h-3.5 w-20" />
+            </div>
+          ))}
+        </div>
+      )}
 
       {kpis && (
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <KpiCard
+            index={0}
             icon={FileText}
             iconBg="bg-brand/10"
             iconColor="text-brand"
             label="Applications"
-            value={kpis.totalApplications.toLocaleString()}
+            numericValue={kpis.totalApplications}
           />
           <KpiCard
+            index={1}
             icon={Wallet}
             iconBg="bg-goldSoft"
             iconColor="text-gold"
             label="Total requested"
-            value={`₦${kpis.totalRequested.toLocaleString()}`}
+            prefix="₦"
+            numericValue={kpis.totalRequested}
             sub={`avg ₦${kpis.avgRequested.toLocaleString()}`}
           />
           <KpiCard
+            index={2}
             icon={CheckCircle2}
             iconBg="bg-good/10"
             iconColor="text-good"
             label="Phase 2 complete"
-            value={`${kpis.completionRate}%`}
+            numericValue={kpis.completionRate}
+            suffix="%"
           />
           <KpiCard
+            index={3}
             icon={TrendingUp}
             iconBg="bg-sage/20"
             iconColor="text-brandDark"
             label="Visit → submit"
-            value={`${kpis.conversionRate}%`}
+            numericValue={kpis.conversionRate}
+            suffix="%"
           />
         </div>
       )}
 
       <div className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="rounded-2xl border border-line bg-white p-6 shadow-sm xl:col-span-2">
+        <div className="card-rise lift-hover rounded-2xl border border-line bg-white p-6 shadow-sm xl:col-span-2" style={{ "--delay": "280ms" } as CSSProperties}>
           <h2 className="mb-4 font-display text-base font-semibold text-ink">Applications over time</h2>
           {timeSeries.length > 0 ? (
             <ResponsiveContainer width="100%" height={240}>
@@ -305,7 +325,17 @@ function Dashboard() {
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#4B5B52" }} axisLine={false} tickLine={false} />
                 <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#4B5B52" }} axisLine={false} tickLine={false} width={28} />
                 <Tooltip />
-                <Area type="monotone" dataKey="count" name="Applications" stroke="#0E7A3A" strokeWidth={2.5} fill="url(#appFill)" />
+                <Area
+                  type="monotone"
+                  dataKey="count"
+                  name="Applications"
+                  stroke="#0E7A3A"
+                  strokeWidth={2.5}
+                  fill="url(#appFill)"
+                  isAnimationActive
+                  animationDuration={1100}
+                  animationEasing="ease-out"
+                />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -313,10 +343,12 @@ function Dashboard() {
           )}
         </div>
 
-        <DonutLegendCard title="Support category" data={breakdowns?.supportCategory ?? []} />
+        <div className="card-rise lift-hover" style={{ "--delay": "340ms" } as CSSProperties}>
+          <DonutLegendCard title="Support category" data={breakdowns?.supportCategory ?? []} />
+        </div>
       </div>
 
-      <div className="mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+      <div className="card-rise mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm" style={{ "--delay": "400ms" } as CSSProperties}>
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
           <h2 className="font-display text-base font-semibold text-ink">Referral leaderboard</h2>
           <select className="input max-w-xs" value={tierFilter} onChange={(e) => setTierFilter(e.target.value)}>
@@ -341,8 +373,12 @@ function Dashboard() {
               <span className="w-20 text-right">Phase 2</span>
             </div>
             <div className="divide-y divide-line">
-              {leaderboard.map((r) => (
-                <div key={r.staffId} className="flex items-center gap-4 px-6 py-3.5">
+              {leaderboard.map((r, i) => (
+                <div
+                  key={r.staffId}
+                  className="row-rise flex items-center gap-4 px-6 py-3.5 transition-colors duration-150 hover:bg-paper"
+                  style={{ "--delay": `${Math.min(i, 10) * 45}ms` } as CSSProperties}
+                >
                   <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 font-mono text-xs font-semibold text-brand">
                     {initials(r.name)}
                   </div>
@@ -352,7 +388,10 @@ function Dashboard() {
                   </div>
                   <div className="hidden w-32 items-center gap-2 sm:flex">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-mist">
-                      <div className="h-full rounded-full bg-brand" style={{ width: `${Math.min(100, r.conversionRate)}%` }} />
+                      <div
+                        className="h-full rounded-full bg-brand transition-[width] duration-700 ease-out"
+                        style={{ width: `${Math.min(100, r.conversionRate)}%`, transitionDelay: `${Math.min(i, 10) * 45}ms` }}
+                      />
                     </div>
                     <span className="w-9 text-right text-xs text-slate">{r.conversionRate}%</span>
                   </div>
@@ -366,17 +405,51 @@ function Dashboard() {
         )}
       </div>
 
+      {!apps && !error && (
+        <div className="mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+          <div className="border-b border-line px-6 py-4">
+            <Skeleton className="h-5 w-40" />
+          </div>
+          <div className="divide-y divide-line">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-6 py-3.5">
+                <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+                <div className="flex-1">
+                  <Skeleton className="h-3.5 w-32" />
+                  <Skeleton className="mt-1.5 h-3 w-20" />
+                </div>
+                <Skeleton className="hidden h-1.5 w-32 sm:block" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {breakdowns && (
         <section>
           <h2 className="mb-3 font-display text-base font-semibold text-ink">Applicant response breakdown</h2>
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            <BarBreakdown title="Top industries" data={breakdowns.industry} />
-            <BarBreakdown title="Top states" data={breakdowns.states} />
-            <BarBreakdown title="Business stage" data={breakdowns.businessStage} />
-            <BarBreakdown title="Planned use of funding" data={breakdowns.fundingUse} />
-            <DonutLegendCard title="Gender" data={breakdowns.gender} />
-            <DonutLegendCard title="Generating revenue?" data={breakdowns.hasRevenue} />
-            <BarBreakdown title="How they heard about the program" data={breakdowns.howHeard} className="md:col-span-2" />
+            <div className="card-rise lift-hover" style={{ "--delay": "460ms" } as CSSProperties}>
+              <BarBreakdown title="Top industries" data={breakdowns.industry} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "500ms" } as CSSProperties}>
+              <BarBreakdown title="Top states" data={breakdowns.states} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "540ms" } as CSSProperties}>
+              <BarBreakdown title="Business stage" data={breakdowns.businessStage} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "580ms" } as CSSProperties}>
+              <BarBreakdown title="Planned use of funding" data={breakdowns.fundingUse} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "620ms" } as CSSProperties}>
+              <DonutLegendCard title="Gender" data={breakdowns.gender} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "660ms" } as CSSProperties}>
+              <DonutLegendCard title="Generating revenue?" data={breakdowns.hasRevenue} />
+            </div>
+            <div className="card-rise lift-hover md:col-span-2" style={{ "--delay": "700ms" } as CSSProperties}>
+              <BarBreakdown title="How they heard about the program" data={breakdowns.howHeard} />
+            </div>
           </div>
         </section>
       )}
@@ -389,31 +462,44 @@ function KpiCard({
   iconBg,
   iconColor,
   label,
-  value,
+  prefix = "",
+  numericValue,
+  suffix = "",
   sub,
+  index = 0,
 }: {
   icon: LucideIcon;
   iconBg: string;
   iconColor: string;
   label: string;
-  value: string;
+  prefix?: string;
+  numericValue: number;
+  suffix?: string;
   sub?: string;
+  index?: number;
 }) {
   return (
-    <div className="rounded-2xl border border-line bg-white p-5 shadow-sm">
-      <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`}>
+    <div
+      className="card-rise lift-hover rounded-2xl border border-line bg-white p-5 shadow-sm"
+      style={{ "--delay": `${index * 70}ms` } as CSSProperties}
+    >
+      <div className={`pop-in flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`} style={{ "--delay": `${index * 70 + 120}ms` } as CSSProperties}>
         <Icon size={18} className={iconColor} strokeWidth={2.25} />
       </div>
-      <p className="mt-4 font-display text-2xl font-semibold text-ink">{value}</p>
+      <p className="mt-4 font-display text-2xl font-semibold text-ink">
+        {prefix}
+        <CountUp value={numericValue} />
+        {suffix}
+      </p>
       <p className="mt-0.5 text-sm text-slate">{label}</p>
       {sub && <p className="mt-1.5 text-xs text-slate/80">{sub}</p>}
     </div>
   );
 }
 
-function BarBreakdown({ title, data, className = "" }: { title: string; data: Count[]; className?: string }) {
+function BarBreakdown({ title, data }: { title: string; data: Count[] }) {
   return (
-    <div className={`rounded-2xl border border-line bg-white p-6 shadow-sm ${className}`}>
+    <div className="rounded-2xl border border-line bg-white p-6 shadow-sm">
       <h3 className="mb-3 font-display text-base font-semibold text-ink">{title}</h3>
       {data.length === 0 ? (
         <p className="text-sm text-slate">No data yet.</p>
@@ -432,7 +518,7 @@ function BarBreakdown({ title, data, className = "" }: { title: string; data: Co
               tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 22)}…` : v)}
             />
             <Tooltip />
-            <Bar dataKey="count" name="Applications" fill="#0E7A3A" radius={[0, 4, 4, 0]} />
+            <Bar dataKey="count" name="Applications" fill="#0E7A3A" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={900} animationEasing="ease-out" />
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -452,7 +538,18 @@ function DonutLegendCard({ title, data }: { title: string; data: Count[] }) {
         <>
           <ResponsiveContainer width="100%" height={180}>
             <PieChart>
-              <Pie data={data} dataKey="count" nameKey="name" innerRadius={54} outerRadius={78} paddingAngle={3} stroke="none">
+              <Pie
+                data={data}
+                dataKey="count"
+                nameKey="name"
+                innerRadius={54}
+                outerRadius={78}
+                paddingAngle={3}
+                stroke="none"
+                isAnimationActive
+                animationDuration={900}
+                animationEasing="ease-out"
+              >
                 {data.map((_, i) => (
                   <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
                 ))}

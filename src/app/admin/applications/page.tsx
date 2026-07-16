@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { collection, getDocs } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
+import Skeleton from "@/components/Skeleton";
 import type { ApplicationRecord, StaffRecord } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -173,11 +174,17 @@ function ApplicationsBrowser() {
           </thead>
           <tbody>
             {!apps && !error && (
-              <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate">
-                  Loading…
-                </td>
-              </tr>
+              <>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-t border-line">
+                    {Array.from({ length: 8 }).map((_, j) => (
+                      <td key={j} className="px-4 py-3.5">
+                        <Skeleton className="h-3.5 w-full max-w-[110px]" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </>
             )}
             {error && (
               <tr>
@@ -193,10 +200,14 @@ function ApplicationsBrowser() {
                 </td>
               </tr>
             )}
-            {pageRows.map((a) => {
+            {pageRows.map((a, i) => {
               const staff = staffById.get(a.referredBy);
               return (
-                <tr key={a.applicationId} className="border-t border-line hover:bg-paper">
+                <tr
+                  key={a.applicationId}
+                  className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                  style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
+                >
                   <td className="px-4 py-3">
                     <Link
                       href={`/admin/applications/${a.applicationId}`}

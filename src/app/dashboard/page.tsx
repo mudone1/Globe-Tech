@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
 import StaffGate from "@/components/StaffGate";
 import BrandMark from "@/components/BrandMark";
 import CopyButton from "@/components/CopyButton";
+import CountUp from "@/components/CountUp";
+import Skeleton from "@/components/Skeleton";
 import { getMyDashboardData, type DashboardData, type DashboardError } from "@/app/dashboard/actions";
 
 export default function DashboardPage() {
@@ -63,11 +65,26 @@ function PersonalDashboard() {
         </p>
       )}
 
-      {!data && !error && <p className="text-slate">Loading your dashboard…</p>}
+      {!data && !error && (
+        <div className="card-rise rounded-card border border-line bg-white p-6 shadow-sm">
+          <Skeleton className="h-3 w-32" />
+          <Skeleton className="mt-3 h-7 w-48" />
+          <Skeleton className="mt-2 h-4 w-24" />
+          <Skeleton className="mt-4 h-12 w-full" />
+          <div className="mt-6 grid grid-cols-3 gap-4">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="text-center">
+                <Skeleton className="mx-auto h-7 w-14" />
+                <Skeleton className="mx-auto mt-2 h-3 w-16" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {data && (
         <>
-          <section className="rounded-card border border-line bg-white p-6 shadow-sm">
+          <section className="card-rise lift-hover rounded-card border border-line bg-white p-6 shadow-sm">
             <p className="font-mono text-xs uppercase tracking-widest text-gold">Your referral link</p>
             <h1 className="mt-1 font-display text-2xl font-semibold text-ink">{data.self.fullName}</h1>
             <p className="text-sm text-slate">{data.self.tier}</p>
@@ -82,14 +99,14 @@ function PersonalDashboard() {
             )}
 
             <div className="mt-6 grid grid-cols-3 gap-4 text-center">
-              <Stat label="Submissions" value={data.self.submissions} />
-              <Stat label="Completed" value={data.self.completed} />
-              <Stat label="Conversion" value={`${data.self.conversionRate}%`} />
+              <Stat label="Submissions" value={data.self.submissions} delay={80} />
+              <Stat label="Completed" value={data.self.completed} delay={140} />
+              <Stat label="Conversion" value={data.self.conversionRate} suffix="%" delay={200} />
             </div>
           </section>
 
           {data.downline.length > 0 && (
-            <section className="mt-8">
+            <section className="card-rise mt-8" style={{ "--delay": "160ms" } as CSSProperties}>
               <h2 className="mb-3 font-display text-xl font-semibold text-ink">Your team</h2>
               <p className="mb-4 text-sm text-slate">
                 Everyone below you in the reporting chain. Copy their link to share it on their behalf.
@@ -107,8 +124,12 @@ function PersonalDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {data.downline.map((m) => (
-                      <tr key={m.staffId} className="border-t border-line">
+                    {data.downline.map((m, i) => (
+                      <tr
+                        key={m.staffId}
+                        className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                        style={{ "--delay": `${Math.min(i, 12) * 40}ms` } as CSSProperties}
+                      >
                         <td className="px-4 py-3 font-medium text-ink">{m.fullName}</td>
                         <td className="px-4 py-3 text-slate">{m.tier}</td>
                         <td className="px-4 py-3">{m.submissions}</td>
@@ -130,10 +151,19 @@ function PersonalDashboard() {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string | number }) {
+function Stat({ label, value, suffix = "", delay = 0 }: { label: string; value: string | number; suffix?: string; delay?: number }) {
   return (
-    <div>
-      <p className="font-display text-2xl font-semibold text-ink">{value}</p>
+    <div className="pop-in" style={{ "--delay": `${delay}ms` } as CSSProperties}>
+      <p className="font-display text-2xl font-semibold text-ink">
+        {typeof value === "number" ? (
+          <>
+            <CountUp value={value} />
+            {suffix}
+          </>
+        ) : (
+          value
+        )}
+      </p>
       <p className="text-xs uppercase tracking-wide text-slate">{label}</p>
     </div>
   );

@@ -51,6 +51,37 @@
   }
 }
 
+@keyframes card-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes shimmer {
+  from {
+    background-position: -300px 0;
+  }
+  to {
+    background-position: 300px 0;
+  }
+}
+
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 @layer components {
   .field-reveal {
     transform-origin: top left;
@@ -59,6 +90,37 @@
 
   .step-enter {
     animation: step-enter 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  /* Premium dashboard entrance: apply with an inline --delay custom property
+     (e.g. style={{ "--delay": `${i * 60}ms` }}) for a staggered cascade. */
+  .card-rise {
+    animation: card-rise 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: var(--delay, 0ms);
+  }
+  .pop-in {
+    animation: pop-in 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: var(--delay, 0ms);
+  }
+
+  .lift-hover {
+    transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s ease;
+  }
+  .lift-hover:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 28px -12px rgba(11, 42, 24, 0.18);
+  }
+
+  .row-rise {
+    animation: card-rise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation-delay: var(--delay, 0ms);
+  }
+
+  .skeleton {
+    background: linear-gradient(90deg, #E4ECE6 25%, #EFF4F0 37%, #E4ECE6 63%);
+    background-size: 600px 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+    border-radius: 8px;
   }
 
   .input {

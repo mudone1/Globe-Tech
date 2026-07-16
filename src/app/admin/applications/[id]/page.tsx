@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, use as usePromise } from "react";
+import { useEffect, useState, use as usePromise, type CSSProperties } from "react";
 import Link from "next/link";
 import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase-client";
@@ -90,7 +90,7 @@ function ApplicationDetail({ id }: { id: string }) {
 
       {record && (
         <>
-          <header className="mt-4 mb-8 rounded-card border border-line bg-white p-6 shadow-sm">
+          <header className="card-rise mt-4 mb-8 rounded-card border border-line bg-white p-6 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="font-mono text-xs uppercase tracking-widest text-gold">
@@ -155,8 +155,12 @@ function ApplicationDetail({ id }: { id: string }) {
           </header>
 
           <div className="space-y-6">
-            {APPLICATION_FIELD_GROUPS.map((group) => (
-              <section key={group.title} className="rounded-card border border-line bg-white p-6 shadow-sm">
+            {APPLICATION_FIELD_GROUPS.map((group, i) => (
+              <section
+                key={group.title}
+                className="card-rise rounded-card border border-line bg-white p-6 shadow-sm"
+                style={{ "--delay": `${Math.min(i, 8) * 60}ms` } as CSSProperties}
+              >
                 <h2 className="mb-4 font-display text-lg font-semibold text-ink">{group.title}</h2>
                 <dl className="grid grid-cols-1 gap-x-6 gap-y-4 sm:grid-cols-2">
                   {group.fields.map((field) => (

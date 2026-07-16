@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition, type CSSProperties } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
+import Skeleton from "@/components/Skeleton";
 import { runStaffSync, approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
 import type { StaffRecord, LinkTokenRecord } from "@/lib/types";
 
@@ -150,7 +151,7 @@ function StaffTable() {
       )}
 
       {pending.length > 0 && (
-        <div className="mb-6 overflow-hidden rounded-card border border-gold/30 bg-goldSoft/40">
+        <div className="card-rise mb-6 overflow-hidden rounded-card border border-gold/30 bg-goldSoft/40">
           <div className="border-b border-gold/30 px-4 py-3">
             <h2 className="font-display text-base font-semibold text-ink">
               Pending approval ({pending.length})
@@ -227,11 +228,17 @@ function StaffTable() {
           </thead>
           <tbody>
             {!rows && !error && (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate">
-                  Loading staff…
-                </td>
-              </tr>
+              <>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-t border-line">
+                    {Array.from({ length: 5 }).map((_, j) => (
+                      <td key={j} className="px-4 py-3.5">
+                        <Skeleton className="h-3.5 w-full max-w-[130px]" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </>
             )}
             {error && (
               <tr>
@@ -249,8 +256,12 @@ function StaffTable() {
                 </td>
               </tr>
             )}
-            {filtered?.map((r) => (
-              <tr key={r.staffId} className="border-t border-line">
+            {filtered?.map((r, i) => (
+              <tr
+                key={r.staffId}
+                className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
+              >
                 <td className="px-4 py-3 font-medium text-ink">{r.fullName}</td>
                 <td className="px-4 py-3 text-slate">
                   {r.tier}
