@@ -44,6 +44,7 @@ export interface LinkTokenRecord {
   token: string; // doc ID, e.g. "x7k9dQ"
   staffId: string;
   createdAt: string; // ISO timestamp
+  isTest?: boolean; // true = visits/applications through this link are excluded from analytics
 }
 
 export type ApplicationStatus =
@@ -51,87 +52,44 @@ export type ApplicationStatus =
   | "phase2_email_sent"
   | "phase2_marked_complete";
 
-// Full application record — one field per question in the Globe-Tech SME
-// Grant application (see Grant Application Questions.docx, Q1–Q47).
+export type GrantCategoryId = "emerging" | "development" | "expansion" | "growth" | "scaleup" | "impact";
+
+// Full application record — condensed to 10 questions max, tailored to the
+// grant category the applicant selects before the chat begins.
 export interface ApplicationRecord {
   applicationId: string; // doc ID, auto
   referredBy: string; // real staffId, or "unassigned"
 
-  // Section 1 — Personal Information (Q1–9)
+  grantCategory: GrantCategoryId;
+  grantAmount: number; // fixed per category — see src/lib/grantCategories.ts
+
+  // Universal (asked regardless of category)
   applicantName: string;
-  gender: string;
-  dateOfBirth: string;
   phone: string;
   email: string;
   stateOfResidence: string;
-  lga: string;
-  linkedin: string;
-  businessSocialHandle: string;
-
-  // Section 2 — Entrepreneur Profile (Q10–11)
-  currentStatus: string;
-  hasPriorBusiness: string; // "Yes" | "No"
-  priorBusinessDescription: string;
-
-  // Section 3 — Business Information (Q12–15)
   businessName: string;
-  businessDescription: string;
-  industry: string;
-  supportCategory: string;
+  grantNeedExplanation: string; // why they need it / how it'll help their business
 
-  // Section 4 — Business Stage & Operations (Q16–22)
-  businessStage: string;
-  operatingDuration: string;
-  dateEstablished: string;
-  registrationStatus: string;
-  cacNumber: string;
-  operatingLocation: string;
-  employeeCount: string;
+  // Categories 1–3 only (street / marketplace / shop traders)
+  businessType?: string;
+  businessLocation?: string;
+  monthlyProductCost?: number;
 
-  // Section 5 — Revenue & Business Performance (Q23–27)
-  hasRevenue: string; // "Yes" | "No"
-  avgMonthlyRevenue: string;
-  revenueLast12Months: string;
-  mainCustomers: string;
-  customerAcquisitionChannels: string[];
+  // Categories 4–6 only (registered Business Name or LLC)
+  cacNumber?: string;
+  cacDocumentUrl?: string; // Google Drive "view" link
+  cacDocumentFileName?: string;
+  businessDescription?: string;
 
-  // Section 6 — Funding Need & Business Needs (Q28–31)
-  grantAmountRequested: number;
-  fundingUse: string[];
-  fundingGrowthExplanation: string;
-  biggestChallenge: string;
-
-  // Section 7 — Entrepreneur Vision & Impact (Q32–36)
-  whyStartBusiness: string;
-  problemSolved: string;
-  desiredImpact: string;
-  fiveYearVision: string;
-  jobsToCreate: string;
-
-  // Section 8 — Grant Application Questions (Q37–41)
-  whyApplying: string;
-  whySelected: string;
-  whatMakesDifferent: string;
-  appliedBefore: string; // "Yes" | "No"
-  receivedFundingBefore: string; // "Yes" | "No" | ""
-  priorFundingDetails: string;
-
-  // Section 9 — Business Academy Commitment (Q42–44)
-  willingAcademy: string; // "Yes" | "No"
-  willingMentorship: string; // "Yes" | "No"
-  improvementAreas: string[];
-
-  // Section 10 — Referral Information (Q45–46)
-  howHeard: string;
-  entrepreneurNetwork: string;
-
-  // Final declaration (Q47)
   declarationAgreed: boolean;
 
   status: ApplicationStatus;
   createdAt: string;
   phase1SubmittedAt: string;
-  firstBankReferralCode: string;
+  grantCode: string; // the referring staff member's staffId — what the applicant enters
+                      // as "Additional Information" on FirstBank's account-opening form
+  isTest?: boolean; // submitted through a link flagged isTest — excluded from analytics
 }
 
 export interface EmailLogRecord {
@@ -140,6 +98,7 @@ export interface EmailLogRecord {
   sentAt: string;
   opened: boolean;
   clicked: boolean;
+  error?: string; // set when the send failed — the application itself still saved fine
 }
 
 // One row per /apply/[token] page load — powers the referral funnel
@@ -148,4 +107,25 @@ export interface VisitRecord {
   token: string;
   staffId: string; // resolved staffId, or "unassigned" if the token didn't resolve
   visitedAt: string; // ISO timestamp
+  isTest?: boolean;
+}
+
+// Single doc (payoutSettings/rate) holding the ₦ commission paid per staff
+// member for each of their referrals that reaches phase2_marked_complete.
+export interface PayoutSettingsRecord {
+  perCompletionAmount: number;
+  updatedAt: string;
+  updatedBy?: string; // admin's Firebase Auth UID
+}
+
+// One row per payment actually made to a staff member — an admin logs these
+// on /admin/payouts as they pay out, so "amount paid" updates over time
+// rather than being a single paid/unpaid flag.
+export interface PayoutRecord {
+  id: string; // doc ID
+  staffId: string;
+  amount: number;
+  note?: string;
+  paidAt: string; // ISO timestamp
+  recordedBy?: string; // admin's Firebase Auth UID
 }

@@ -30,11 +30,12 @@ export interface DriveUploadResult {
   webViewLink: string;
 }
 
-export async function uploadIdCardToDrive(buffer: Buffer, fileName: string, mimeType: string): Promise<DriveUploadResult> {
-  const folderId = process.env.GOOGLE_DRIVE_ID_CARDS_FOLDER_ID;
-  if (!folderId) {
-    throw new Error("GOOGLE_DRIVE_ID_CARDS_FOLDER_ID is not set. Add it in Vercel's environment variables.");
-  }
+export async function uploadFileToDrive(
+  buffer: Buffer,
+  fileName: string,
+  mimeType: string,
+  folderId: string
+): Promise<DriveUploadResult> {
   const drive = getDriveClient();
 
   const { data } = await drive.files.create({
@@ -55,4 +56,23 @@ export async function uploadIdCardToDrive(buffer: Buffer, fileName: string, mime
   });
 
   return { fileId, webViewLink: data.webViewLink ?? `https://drive.google.com/file/d/${fileId}/view` };
+}
+
+export async function uploadIdCardToDrive(buffer: Buffer, fileName: string, mimeType: string): Promise<DriveUploadResult> {
+  const folderId = process.env.GOOGLE_DRIVE_ID_CARDS_FOLDER_ID;
+  if (!folderId) {
+    throw new Error("GOOGLE_DRIVE_ID_CARDS_FOLDER_ID is not set. Add it in Vercel's environment variables.");
+  }
+  return uploadFileToDrive(buffer, fileName, mimeType, folderId);
+}
+
+export async function uploadCacDocumentToDrive(buffer: Buffer, fileName: string, mimeType: string): Promise<DriveUploadResult> {
+  // Falls back to the ID-cards folder if a separate CAC-docs folder isn't
+  // configured, so this works out of the box without a second Drive setup —
+  // set GOOGLE_DRIVE_CAC_DOCS_FOLDER_ID if you'd rather keep them apart.
+  const folderId = process.env.GOOGLE_DRIVE_CAC_DOCS_FOLDER_ID || process.env.GOOGLE_DRIVE_ID_CARDS_FOLDER_ID;
+  if (!folderId) {
+    throw new Error("GOOGLE_DRIVE_CAC_DOCS_FOLDER_ID (or GOOGLE_DRIVE_ID_CARDS_FOLDER_ID) is not set. Add one in Vercel's environment variables.");
+  }
+  return uploadFileToDrive(buffer, fileName, mimeType, folderId);
 }

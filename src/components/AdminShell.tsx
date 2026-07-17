@@ -4,13 +4,15 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { signOut } from "firebase/auth";
-import { LayoutDashboard, FileText, Users, LogOut } from "lucide-react";
+import { LayoutDashboard, FileText, Users, Wallet, Settings, LogOut } from "lucide-react";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 
 const LINKS = [
   { href: "/admin/dashboard", label: "Analytics", icon: LayoutDashboard },
   { href: "/admin/applications", label: "Applications", icon: FileText },
   { href: "/admin/staff", label: "Staff", icon: Users },
+  { href: "/admin/payouts", label: "Payouts", icon: Wallet },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 
 export default function AdminShell({ children }: { children: React.ReactNode }) {

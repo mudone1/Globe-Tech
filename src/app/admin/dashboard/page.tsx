@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { collection, getDocs } from "firebase/firestore";
+import { collection, getDocs, doc, getDoc } from "firebase/firestore";
 import {
   ResponsiveContainer,
   AreaChart,
@@ -23,11 +23,19 @@ import AdminShell from "@/components/AdminShell";
 import CountUp from "@/components/CountUp";
 import Skeleton from "@/components/Skeleton";
 import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
-import type { ApplicationRecord, StaffRecord, VisitRecord } from "@/lib/types";
+import { getGrantCategory } from "@/lib/grantCategories";
+import type { ApplicationRecord, StaffRecord, VisitRecord, PayoutSettingsRecord } from "@/lib/types";
 
 const CANONICAL_TIERS = ROLE_ORDER.map((r) => ROLE_CONFIGS[r].tier);
 
-const CHART_COLORS = ["#0E7A3A", "#C8952A", "#7FA688", "#054A26", "#B3392C", "#4B5B52", "#1E7A4C", "#D7E4D9"];
+const CHART_COLORS = ["#0E7A3A", "#C8952A", "#2BB894", "#D98A4C", "#054A26", "#7FA688", "#B3392C", "#4B5B52"];
+
+const KPI_GRADIENTS = [
+  "linear-gradient(135deg, #17B25C 0%, #075C31 100%)", // emerald
+  "linear-gradient(135deg, #EBBD52 0%, #B3791E 100%)", // gold
+  "linear-gradient(135deg, #2FC7A3 0%, #0E6B54 100%)", // teal
+  "linear-gradient(135deg, #E0965A 0%, #954E1F 100%)", // bronze/terracotta
+];
 
 export default function DashboardPage() {
   return (
@@ -55,21 +63,6 @@ function countBy(apps: ApplicationRecord[], key: keyof ApplicationRecord): Count
     .sort((a, b) => b.count - a.count);
 }
 
-function countByList(apps: ApplicationRecord[], key: keyof ApplicationRecord): Count[] {
-  const counts = new Map<string, number>();
-  for (const a of apps) {
-    const v = a[key];
-    if (Array.isArray(v)) {
-      for (const item of v) {
-        if (typeof item === "string" && item.trim()) counts.set(item, (counts.get(item) ?? 0) + 1);
-      }
-    }
-  }
-  return Array.from(counts.entries())
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count);
-}
-
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -81,6 +74,7 @@ function Dashboard() {
   const [apps, setApps] = useState<ApplicationRecord[] | null>(null);
   const [staffById, setStaffById] = useState<Map<string, StaffRecord>>(new Map());
   const [visits, setVisits] = useState<VisitRecord[]>([]);
+  const [payoutRate, setPayoutRate] = useState(0);
   const [tierFilter, setTierFilter] = useState<string>("all");
   const [error, setError] = useState<string | null>(null);
 
@@ -88,19 +82,23 @@ function Dashboard() {
     async function load() {
       try {
         const db = getFirebaseDb();
-        const [appsSnap, staffSnap, visitsSnap] = await Promise.all([
+        const [appsSnap, staffSnap, visitsSnap, settingsSnap] = await Promise.all([
           getDocs(collection(db, "applications")),
           getDocs(collection(db, "staff")),
           getDocs(collection(db, "visits")),
+          getDoc(doc(db, "payoutSettings", "rate")),
         ]);
-        setApps(appsSnap.docs.map((d) => d.data() as ApplicationRecord));
+        setApps(appsSnap.docs.map((d) => d.data() as ApplicationRecord).filter((a) => !a.isTest));
         const map = new Map<string, StaffRecord>();
         staffSnap.forEach((d) => {
           const s = d.data() as StaffRecord;
           map.set(s.staffId, s);
         });
         setStaffById(map);
-        setVisits(visitsSnap.docs.map((d) => d.data() as VisitRecord));
+        setVisits(visitsSnap.docs.map((d) => d.data() as VisitRecord).filter((v) => !v.isTest));
+        if (settingsSnap.exists()) {
+          setPayoutRate((settingsSnap.data() as PayoutSettingsRecord).perCompletionAmount);
+        }
       } catch (err) {
         const message =
           err instanceof Error && err.message.includes("permission")
@@ -115,18 +113,17 @@ function Dashboard() {
 
   const kpis = useMemo(() => {
     if (!apps) return null;
-    const totalRequested = apps.reduce((sum, a) => sum + (Number(a.grantAmountRequested) || 0), 0);
     const completed = apps.filter((a) => a.status === "phase2_marked_complete").length;
     return {
       totalApplications: apps.length,
-      totalRequested,
-      avgRequested: apps.length ? Math.round(totalRequested / apps.length) : 0,
+      expectedPayout: completed * payoutRate,
+      completedCount: completed,
       completionRate: apps.length ? Math.round((completed / apps.length) * 100) : 0,
       totalStaff: staffById.size,
       totalVisits: visits.length,
       conversionRate: visits.length ? Math.round((apps.length / visits.length) * 100) : 0,
     };
-  }, [apps, staffById, visits]);
+  }, [apps, staffById, visits, payoutRate]);
 
   const timeSeries = useMemo(() => {
     if (!apps) return [];
@@ -176,31 +173,39 @@ function Dashboard() {
 
   const breakdowns = useMemo(() => {
     if (!apps) return null;
+    const categoryNames = apps.map((a) => (a.grantCategory ? getGrantCategory(a.grantCategory).name : "")).filter(Boolean);
+    const categoryCounts = new Map<string, number>();
+    for (const name of categoryNames) categoryCounts.set(name, (categoryCounts.get(name) ?? 0) + 1);
+    const grantCategory = Array.from(categoryCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const tierCounts = new Map<string, number>();
+    for (const a of apps) {
+      if (!a.grantCategory) continue;
+      const tier = getGrantCategory(a.grantCategory).tier;
+      const label = tier === "trader" ? "Street/market/shop trader" : tier === "enterprise" ? "Registered Business Name" : "Registered LLC";
+      tierCounts.set(label, (tierCounts.get(label) ?? 0) + 1);
+    }
+    const tierSplit = Array.from(tierCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
     return {
-      industry: countBy(apps, "industry").slice(0, 8),
-      supportCategory: countBy(apps, "supportCategory"),
-      businessStage: countBy(apps, "businessStage"),
-      gender: countBy(apps, "gender"),
-      hasRevenue: countBy(apps, "hasRevenue"),
+      grantCategory,
+      tierSplit,
       states: countBy(apps, "stateOfResidence").slice(0, 8),
-      howHeard: countBy(apps, "howHeard"),
-      fundingUse: countByList(apps, "fundingUse").slice(0, 8),
+      businessType: countBy(apps, "businessType").slice(0, 8),
     };
   }, [apps]);
 
   function exportCsv() {
     if (!apps) return;
     const headers = [
-      "applicationId", "applicantName", "gender", "dateOfBirth", "phone", "email", "stateOfResidence",
-      "lga", "linkedin", "businessSocialHandle", "currentStatus", "hasPriorBusiness",
-      "priorBusinessDescription", "businessName", "businessDescription", "industry", "supportCategory",
-      "businessStage", "operatingDuration", "dateEstablished", "registrationStatus", "cacNumber",
-      "operatingLocation", "employeeCount", "hasRevenue", "avgMonthlyRevenue", "revenueLast12Months",
-      "mainCustomers", "customerAcquisitionChannels", "grantAmountRequested", "fundingUse",
-      "fundingGrowthExplanation", "biggestChallenge", "whyStartBusiness", "problemSolved", "desiredImpact",
-      "fiveYearVision", "jobsToCreate", "whyApplying", "whySelected", "whatMakesDifferent", "appliedBefore",
-      "receivedFundingBefore", "priorFundingDetails", "willingAcademy", "willingMentorship",
-      "improvementAreas", "howHeard", "entrepreneurNetwork", "referredBy", "status", "createdAt",
+      "applicationId", "applicantName", "phone", "email", "stateOfResidence", "businessName",
+      "grantCategory", "grantAmount", "grantNeedExplanation", "businessType", "businessLocation",
+      "monthlyProductCost", "cacNumber", "cacDocumentUrl", "businessDescription",
+      "referredBy", "grantCode", "status", "createdAt",
     ];
     const lines = [
       headers.join(","),
@@ -273,26 +278,23 @@ function Dashboard() {
           <KpiCard
             index={0}
             icon={FileText}
-            iconBg="bg-brand/10"
-            iconColor="text-brand"
+            gradient={KPI_GRADIENTS[0]}
             label="Applications"
             numericValue={kpis.totalApplications}
           />
           <KpiCard
             index={1}
             icon={Wallet}
-            iconBg="bg-goldSoft"
-            iconColor="text-gold"
-            label="Total requested"
+            gradient={KPI_GRADIENTS[1]}
+            label="Expected payout"
             prefix="₦"
-            numericValue={kpis.totalRequested}
-            sub={`avg ₦${kpis.avgRequested.toLocaleString()}`}
+            numericValue={kpis.expectedPayout}
+            sub={`${kpis.completedCount} completed × ₦${payoutRate.toLocaleString()}`}
           />
           <KpiCard
             index={2}
             icon={CheckCircle2}
-            iconBg="bg-good/10"
-            iconColor="text-good"
+            gradient={KPI_GRADIENTS[2]}
             label="Phase 2 complete"
             numericValue={kpis.completionRate}
             suffix="%"
@@ -300,8 +302,7 @@ function Dashboard() {
           <KpiCard
             index={3}
             icon={TrendingUp}
-            iconBg="bg-sage/20"
-            iconColor="text-brandDark"
+            gradient={KPI_GRADIENTS[3]}
             label="Visit → submit"
             numericValue={kpis.conversionRate}
             suffix="%"
@@ -317,8 +318,13 @@ function Dashboard() {
               <AreaChart data={timeSeries}>
                 <defs>
                   <linearGradient id="appFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#0E7A3A" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#0E7A3A" stopOpacity={0} />
+                    <stop offset="5%" stopColor="#17B25C" stopOpacity={0.45} />
+                    <stop offset="60%" stopColor="#17B25C" stopOpacity={0.12} />
+                    <stop offset="100%" stopColor="#17B25C" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="appStroke" x1="0" y1="0" x2="1" y2="0">
+                    <stop offset="0%" stopColor="#0E7A3A" />
+                    <stop offset="100%" stopColor="#C8952A" />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#DCE6DE" vertical={false} />
@@ -329,8 +335,8 @@ function Dashboard() {
                   type="monotone"
                   dataKey="count"
                   name="Applications"
-                  stroke="#0E7A3A"
-                  strokeWidth={2.5}
+                  stroke="url(#appStroke)"
+                  strokeWidth={3}
                   fill="url(#appFill)"
                   isAnimationActive
                   animationDuration={1100}
@@ -344,7 +350,7 @@ function Dashboard() {
         </div>
 
         <div className="card-rise lift-hover" style={{ "--delay": "340ms" } as CSSProperties}>
-          <DonutLegendCard title="Support category" data={breakdowns?.supportCategory ?? []} />
+          <DonutLegendCard title="Grant category" data={breakdowns?.grantCategory ?? []} />
         </div>
       </div>
 
@@ -379,7 +385,10 @@ function Dashboard() {
                   className="row-rise flex items-center gap-4 px-6 py-3.5 transition-colors duration-150 hover:bg-paper"
                   style={{ "--delay": `${Math.min(i, 10) * 45}ms` } as CSSProperties}
                 >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand/10 font-mono text-xs font-semibold text-brand">
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold text-white shadow-sm"
+                    style={{ background: KPI_GRADIENTS[i % KPI_GRADIENTS.length] }}
+                  >
                     {initials(r.name)}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -389,8 +398,12 @@ function Dashboard() {
                   <div className="hidden w-32 items-center gap-2 sm:flex">
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-mist">
                       <div
-                        className="h-full rounded-full bg-brand transition-[width] duration-700 ease-out"
-                        style={{ width: `${Math.min(100, r.conversionRate)}%`, transitionDelay: `${Math.min(i, 10) * 45}ms` }}
+                        className="h-full rounded-full transition-[width] duration-700 ease-out"
+                        style={{
+                          width: `${Math.min(100, r.conversionRate)}%`,
+                          transitionDelay: `${Math.min(i, 10) * 45}ms`,
+                          background: "linear-gradient(90deg, #0E7A3A, #C8952A)",
+                        }}
                       />
                     </div>
                     <span className="w-9 text-right text-xs text-slate">{r.conversionRate}%</span>
@@ -430,25 +443,16 @@ function Dashboard() {
           <h2 className="mb-3 font-display text-base font-semibold text-ink">Applicant response breakdown</h2>
           <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
             <div className="card-rise lift-hover" style={{ "--delay": "460ms" } as CSSProperties}>
-              <BarBreakdown title="Top industries" data={breakdowns.industry} />
+              <BarBreakdown title="Applications by grant category" data={breakdowns.grantCategory} />
             </div>
             <div className="card-rise lift-hover" style={{ "--delay": "500ms" } as CSSProperties}>
               <BarBreakdown title="Top states" data={breakdowns.states} />
             </div>
             <div className="card-rise lift-hover" style={{ "--delay": "540ms" } as CSSProperties}>
-              <BarBreakdown title="Business stage" data={breakdowns.businessStage} />
+              <DonutLegendCard title="Applicant type" data={breakdowns.tierSplit} />
             </div>
             <div className="card-rise lift-hover" style={{ "--delay": "580ms" } as CSSProperties}>
-              <BarBreakdown title="Planned use of funding" data={breakdowns.fundingUse} />
-            </div>
-            <div className="card-rise lift-hover" style={{ "--delay": "620ms" } as CSSProperties}>
-              <DonutLegendCard title="Gender" data={breakdowns.gender} />
-            </div>
-            <div className="card-rise lift-hover" style={{ "--delay": "660ms" } as CSSProperties}>
-              <DonutLegendCard title="Generating revenue?" data={breakdowns.hasRevenue} />
-            </div>
-            <div className="card-rise lift-hover md:col-span-2" style={{ "--delay": "700ms" } as CSSProperties}>
-              <BarBreakdown title="How they heard about the program" data={breakdowns.howHeard} />
+              <BarBreakdown title="Top business types (traders)" data={breakdowns.businessType} />
             </div>
           </div>
         </section>
@@ -459,8 +463,7 @@ function Dashboard() {
 
 function KpiCard({
   icon: Icon,
-  iconBg,
-  iconColor,
+  gradient,
   label,
   prefix = "",
   numericValue,
@@ -469,8 +472,7 @@ function KpiCard({
   index = 0,
 }: {
   icon: LucideIcon;
-  iconBg: string;
-  iconColor: string;
+  gradient: string;
   label: string;
   prefix?: string;
   numericValue: number;
@@ -480,19 +482,27 @@ function KpiCard({
 }) {
   return (
     <div
-      className="card-rise lift-hover rounded-2xl border border-line bg-white p-5 shadow-sm"
-      style={{ "--delay": `${index * 70}ms` } as CSSProperties}
+      className="card-rise lift-hover relative overflow-hidden rounded-2xl p-5 shadow-lg"
+      style={{ "--delay": `${index * 70}ms`, background: gradient } as CSSProperties}
     >
-      <div className={`pop-in flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`} style={{ "--delay": `${index * 70 + 120}ms` } as CSSProperties}>
-        <Icon size={18} className={iconColor} strokeWidth={2.25} />
+      {/* Soft light-source glow, top-left — echoes the reference's vivid gradient cards */}
+      <div
+        className="pointer-events-none absolute -left-6 -top-10 h-32 w-32 rounded-full opacity-40"
+        style={{ background: "radial-gradient(circle, rgba(255,255,255,0.55), transparent 70%)" }}
+      />
+      <div
+        className="pop-in relative flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm"
+        style={{ "--delay": `${index * 70 + 120}ms` } as CSSProperties}
+      >
+        <Icon size={18} className="text-white" strokeWidth={2.25} />
       </div>
-      <p className="mt-4 font-display text-2xl font-semibold text-ink">
+      <p className="relative mt-4 font-display text-2xl font-semibold text-white">
         {prefix}
         <CountUp value={numericValue} />
         {suffix}
       </p>
-      <p className="mt-0.5 text-sm text-slate">{label}</p>
-      {sub && <p className="mt-1.5 text-xs text-slate/80">{sub}</p>}
+      <p className="relative mt-0.5 text-sm text-white/80">{label}</p>
+      {sub && <p className="relative mt-1.5 text-xs text-white/60">{sub}</p>}
     </div>
   );
 }
@@ -506,6 +516,12 @@ function BarBreakdown({ title, data }: { title: string; data: Count[] }) {
       ) : (
         <ResponsiveContainer width="100%" height={Math.max(160, data.length * 34)}>
           <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
+            <defs>
+              <linearGradient id="barFill" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#0E7A3A" />
+                <stop offset="100%" stopColor="#2FC7A3" />
+              </linearGradient>
+            </defs>
             <CartesianGrid strokeDasharray="3 3" stroke="#DCE6DE" horizontal={false} />
             <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#4B5B52" }} axisLine={false} tickLine={false} />
             <YAxis
@@ -518,7 +534,7 @@ function BarBreakdown({ title, data }: { title: string; data: Count[] }) {
               tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 22)}…` : v)}
             />
             <Tooltip />
-            <Bar dataKey="count" name="Applications" fill="#0E7A3A" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={900} animationEasing="ease-out" />
+            <Bar dataKey="count" name="Applications" fill="url(#barFill)" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={900} animationEasing="ease-out" />
           </BarChart>
         </ResponsiveContainer>
       )}

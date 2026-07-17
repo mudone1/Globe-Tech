@@ -2,8 +2,11 @@
 
 import { cookies } from "next/headers";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { resolveStaffIdFromToken, generateFirstBankReferralCode } from "@/lib/referral";
-import type { ApplicationRecord, VisitRecord } from "@/lib/types";
+import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
+import { sendGrantCodeEmail } from "@/lib/email";
+import { uploadCacDocumentToDrive } from "@/lib/googleDrive";
+import { GRANT_CATEGORIES } from "@/lib/grantCategories";
+import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
 
 const REF_COOKIE = "gt_ref_token";
 
@@ -29,87 +32,42 @@ export async function recordVisit(token: string) {
   });
 
   try {
-    const staffId = (await resolveStaffIdFromToken(token)) ?? "unassigned";
-    const record: VisitRecord = { token, staffId, visitedAt: new Date().toISOString() };
+    const [staffId, isTest] = await Promise.all([
+      resolveStaffIdFromToken(token).then((id) => id ?? "unassigned"),
+      isTokenFlaggedTest(token),
+    ]);
+    const record: VisitRecord = { token, staffId, visitedAt: new Date().toISOString(), ...(isTest ? { isTest: true } : {}) };
     await getAdminDb().collection("visits").add(record);
   } catch (err) {
     console.error("recordVisit: failed to log visit (non-fatal):", err);
   }
 }
 
-// Mirrors every question in Grant Application Questions.docx (Q1–Q47).
 export interface SubmitApplicationInput {
   token: string;
 
-  // Section 1
+  grantCategory: GrantCategoryId;
+  grantAmount: number;
+
+  // Universal
   applicantName: string;
-  gender: string;
-  dateOfBirth: string;
   phone: string;
   email: string;
   stateOfResidence: string;
-  lga: string;
-  linkedin: string;
-  businessSocialHandle: string;
-
-  // Section 2
-  currentStatus: string;
-  hasPriorBusiness: string;
-  priorBusinessDescription: string;
-
-  // Section 3
   businessName: string;
-  businessDescription: string;
-  industry: string;
-  supportCategory: string;
+  grantNeedExplanation: string;
 
-  // Section 4
-  businessStage: string;
-  operatingDuration: string;
-  dateEstablished: string;
-  registrationStatus: string;
-  cacNumber: string;
-  operatingLocation: string;
-  employeeCount: string;
+  // Trader categories (1–3) only
+  businessType?: string;
+  businessLocation?: string;
+  monthlyProductCost?: number;
 
-  // Section 5
-  hasRevenue: string;
-  avgMonthlyRevenue: string;
-  revenueLast12Months: string;
-  mainCustomers: string;
-  customerAcquisitionChannels: string[];
+  // Enterprise/LLC categories (4–6) only
+  cacNumber?: string;
+  cacDocumentUrl?: string;
+  cacDocumentFileName?: string;
+  businessDescription?: string;
 
-  // Section 6
-  grantAmountRequested: number;
-  fundingUse: string[];
-  fundingGrowthExplanation: string;
-  biggestChallenge: string;
-
-  // Section 7
-  whyStartBusiness: string;
-  problemSolved: string;
-  desiredImpact: string;
-  fiveYearVision: string;
-  jobsToCreate: string;
-
-  // Section 8
-  whyApplying: string;
-  whySelected: string;
-  whatMakesDifferent: string;
-  appliedBefore: string;
-  receivedFundingBefore: string;
-  priorFundingDetails: string;
-
-  // Section 9
-  willingAcademy: string;
-  willingMentorship: string;
-  improvementAreas: string[];
-
-  // Section 10
-  howHeard: string;
-  entrepreneurNetwork: string;
-
-  // Final declaration
   declarationAgreed: boolean;
 
   honeypot: string; // must arrive empty — bots fill every field
@@ -118,7 +76,7 @@ export interface SubmitApplicationInput {
 export interface SubmitApplicationResult {
   ok: boolean;
   error?: string;
-  firstBankReferralCode?: string;
+  grantCode?: string;
 }
 
 export async function submitApplication(
@@ -127,47 +85,37 @@ export async function submitApplication(
   // Spam guard: a real applicant never sees or fills this field.
   if (input.honeypot) {
     // Pretend success so bots don't learn the honeypot worked.
-    return { ok: true, firstBankReferralCode: generateFirstBankReferralCode() };
+    return { ok: true, grantCode: "GT-DEMO" };
+  }
+
+  const category = GRANT_CATEGORIES.find((c) => c.id === input.grantCategory);
+  if (!category) {
+    return { ok: false, error: "Select a grant category to continue." };
   }
 
   const requiredStrings: Array<[string, string]> = [
     ["Full name", input.applicantName],
-    ["Gender", input.gender],
-    ["Date of birth", input.dateOfBirth],
     ["Phone number", input.phone],
     ["Email address", input.email],
     ["State of residence", input.stateOfResidence],
-    ["Local Government Area", input.lga],
-    ["Current status", input.currentStatus],
-    ["Previous business experience answer", input.hasPriorBusiness],
     ["Business name", input.businessName],
-    ["Business description", input.businessDescription],
-    ["Industry", input.industry],
-    ["Support category", input.supportCategory],
-    ["Business stage", input.businessStage],
-    ["Operating duration", input.operatingDuration],
-    ["Date established", input.dateEstablished],
-    ["Registration status", input.registrationStatus],
-    ["Operating location", input.operatingLocation],
-    ["Employee count", input.employeeCount],
-    ["Revenue status", input.hasRevenue],
-    ["Revenue in the last 12 months", input.revenueLast12Months],
-    ["Main customers", input.mainCustomers],
-    ["Funding growth explanation", input.fundingGrowthExplanation],
-    ["Biggest challenge", input.biggestChallenge],
-    ["Why you started this business", input.whyStartBusiness],
-    ["Problem your business solves", input.problemSolved],
-    ["Desired impact", input.desiredImpact],
-    ["Five-year vision", input.fiveYearVision],
-    ["Jobs to create", input.jobsToCreate],
-    ["Why you're applying", input.whyApplying],
-    ["Why you should be selected", input.whySelected],
-    ["What makes your business different", input.whatMakesDifferent],
-    ["Prior grant application answer", input.appliedBefore],
-    ["Business Academy commitment answer", input.willingAcademy],
-    ["Mentorship commitment answer", input.willingMentorship],
-    ["How you heard about the program", input.howHeard],
+    ["Why you need this grant", input.grantNeedExplanation],
   ];
+
+  if (category.tier === "trader") {
+    requiredStrings.push(["Business type", input.businessType ?? ""], ["Business location", input.businessLocation ?? ""]);
+    if (!input.monthlyProductCost || Number(input.monthlyProductCost) <= 0) {
+      return { ok: false, error: "Enter your approximate monthly product cost." };
+    }
+  } else {
+    requiredStrings.push(
+      ["CAC registration number", input.cacNumber ?? ""],
+      ["Business description", input.businessDescription ?? ""]
+    );
+    if (!input.cacDocumentUrl) {
+      return { ok: false, error: "Upload your CAC registration document." };
+    }
+  }
 
   for (const [label, value] of requiredStrings) {
     if (!value || !value.trim()) {
@@ -175,24 +123,6 @@ export async function submitApplication(
     }
   }
 
-  if (!input.grantAmountRequested || Number(input.grantAmountRequested) <= 0) {
-    return { ok: false, error: "Please enter the funding amount you're requesting." };
-  }
-  if (!input.fundingUse || input.fundingUse.length === 0) {
-    return { ok: false, error: "Select at least one intended use for the grant funding." };
-  }
-  if (!input.customerAcquisitionChannels || input.customerAcquisitionChannels.length === 0) {
-    return { ok: false, error: "Select how customers currently find your business." };
-  }
-  if (!input.improvementAreas || input.improvementAreas.length === 0) {
-    return { ok: false, error: "Select at least one area of business development to improve." };
-  }
-  if (input.hasRevenue === "Yes" && !input.avgMonthlyRevenue) {
-    return { ok: false, error: "Select your average monthly revenue." };
-  }
-  if (input.appliedBefore === "Yes" && !input.receivedFundingBefore) {
-    return { ok: false, error: "Let us know whether you received funding previously." };
-  }
   if (!input.declarationAgreed) {
     return { ok: false, error: "Please confirm the final declaration to submit." };
   }
@@ -209,93 +139,114 @@ export async function submitApplication(
   // Resolve fresh from the token — don't trust anything the client claims
   // about who referred them. Fall back to the cookie if the token itself
   // is missing (e.g. a future multi-step flow that drops the URL segment).
+  let resolvedToken = input.token;
   let staffId = await resolveStaffIdFromToken(input.token);
   if (!staffId) {
     const store = await cookies();
     const cookieToken = store.get(REF_COOKIE)?.value;
     staffId = await resolveStaffIdFromToken(cookieToken);
+    if (staffId && cookieToken) resolvedToken = cookieToken;
   }
+  const isTest = await isTokenFlaggedTest(resolvedToken);
 
-  const firstBankReferralCode = generateFirstBankReferralCode();
+  const grantCode = staffId ?? "unassigned";
   const now = new Date().toISOString();
 
   const docRef = getAdminDb().collection("applications").doc();
   const record: ApplicationRecord = {
     applicationId: docRef.id,
     referredBy: staffId ?? "unassigned",
+    ...(isTest ? { isTest: true } : {}),
+
+    grantCategory: input.grantCategory,
+    grantAmount: category.amount,
 
     applicantName: input.applicantName.trim(),
-    gender: input.gender,
-    dateOfBirth: input.dateOfBirth,
     phone: input.phone.trim(),
     email: input.email.trim().toLowerCase(),
     stateOfResidence: input.stateOfResidence,
-    lga: input.lga.trim(),
-    linkedin: input.linkedin.trim(),
-    businessSocialHandle: input.businessSocialHandle.trim(),
-
-    currentStatus: input.currentStatus,
-    hasPriorBusiness: input.hasPriorBusiness,
-    priorBusinessDescription: input.priorBusinessDescription.trim(),
-
     businessName: input.businessName.trim(),
-    businessDescription: input.businessDescription.trim(),
-    industry: input.industry,
-    supportCategory: input.supportCategory,
+    grantNeedExplanation: input.grantNeedExplanation.trim(),
 
-    businessStage: input.businessStage,
-    operatingDuration: input.operatingDuration,
-    dateEstablished: input.dateEstablished,
-    registrationStatus: input.registrationStatus,
-    cacNumber: input.cacNumber.trim(),
-    operatingLocation: input.operatingLocation,
-    employeeCount: input.employeeCount,
-
-    hasRevenue: input.hasRevenue,
-    avgMonthlyRevenue: input.avgMonthlyRevenue,
-    revenueLast12Months: input.revenueLast12Months.trim(),
-    mainCustomers: input.mainCustomers.trim(),
-    customerAcquisitionChannels: input.customerAcquisitionChannels,
-
-    grantAmountRequested: Number(input.grantAmountRequested) || 0,
-    fundingUse: input.fundingUse,
-    fundingGrowthExplanation: input.fundingGrowthExplanation.trim(),
-    biggestChallenge: input.biggestChallenge.trim(),
-
-    whyStartBusiness: input.whyStartBusiness.trim(),
-    problemSolved: input.problemSolved.trim(),
-    desiredImpact: input.desiredImpact.trim(),
-    fiveYearVision: input.fiveYearVision.trim(),
-    jobsToCreate: input.jobsToCreate,
-
-    whyApplying: input.whyApplying.trim(),
-    whySelected: input.whySelected.trim(),
-    whatMakesDifferent: input.whatMakesDifferent.trim(),
-    appliedBefore: input.appliedBefore,
-    receivedFundingBefore: input.receivedFundingBefore,
-    priorFundingDetails: input.priorFundingDetails.trim(),
-
-    willingAcademy: input.willingAcademy,
-    willingMentorship: input.willingMentorship,
-    improvementAreas: input.improvementAreas,
-
-    howHeard: input.howHeard,
-    entrepreneurNetwork: input.entrepreneurNetwork.trim(),
+    ...(category.tier === "trader"
+      ? {
+          businessType: (input.businessType ?? "").trim(),
+          businessLocation: (input.businessLocation ?? "").trim(),
+          monthlyProductCost: Number(input.monthlyProductCost) || 0,
+        }
+      : {
+          cacNumber: (input.cacNumber ?? "").trim(),
+          cacDocumentUrl: input.cacDocumentUrl,
+          cacDocumentFileName: input.cacDocumentFileName,
+          businessDescription: (input.businessDescription ?? "").trim(),
+        }),
 
     declarationAgreed: input.declarationAgreed,
 
     status: "phase1_submitted",
     createdAt: now,
     phase1SubmittedAt: now,
-    firstBankReferralCode,
+    grantCode,
   };
 
   await docRef.set(record);
 
-  // Phase 3 (email + Sheets backup) is triggered by a Firestore onCreate
-  // Cloud Function — see functions/src/onApplicationCreated.ts — once you've
-  // supplied the Resend/SendGrid key and backup Sheet. Nothing further to
-  // do here.
+  // Send the Grant Code + FirstBank account-opening guide immediately.
+  // A failed send never fails the submission itself — the application is
+  // already saved — it's just logged to emailLogs so it's visible to admins
+  // rather than silently disappearing.
+  try {
+    await sendGrantCodeEmail({
+      to: record.email,
+      applicantName: record.applicantName,
+      grantCode,
+      grantCategoryName: category.name,
+      grantAmount: category.amount,
+    });
+    await docRef.update({ status: "phase2_email_sent" });
+    await getAdminDb().collection("emailLogs").add({
+      applicationId: docRef.id,
+      type: "phase2_instructions",
+      sentAt: new Date().toISOString(),
+      opened: false,
+      clicked: false,
+    } satisfies EmailLogRecord);
+  } catch (err) {
+    console.error(`Grant Code email failed for application ${docRef.id}:`, err);
+    await getAdminDb()
+      .collection("emailLogs")
+      .add({
+        applicationId: docRef.id,
+        type: "phase2_instructions",
+        sentAt: new Date().toISOString(),
+        opened: false,
+        clicked: false,
+        error: err instanceof Error ? err.message : String(err),
+      } satisfies EmailLogRecord);
+  }
 
-  return { ok: true, firstBankReferralCode };
+  return { ok: true, grantCode };
+}
+
+export type UploadCacDocumentResult = { ok: true; url: string; fileName: string } | { ok: false; error: string };
+
+const ALLOWED_CAC_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+const MAX_CAC_BYTES = 10 * 1024 * 1024;
+
+export async function uploadCacDocument(formData: FormData): Promise<UploadCacDocumentResult> {
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { ok: false, error: "Choose a file first." };
+  if (file.size > MAX_CAC_BYTES) return { ok: false, error: "That file is too large — max 10MB." };
+  if (!ALLOWED_CAC_TYPES.includes(file.type)) {
+    return { ok: false, error: "Upload a JPG, PNG, or PDF file." };
+  }
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const result = await uploadCacDocumentToDrive(buffer, file.name, file.type);
+    return { ok: true, url: result.webViewLink, fileName: file.name };
+  } catch (err) {
+    console.error("uploadCacDocument failed:", err);
+    return { ok: false, error: "Couldn't upload your file right now. Please try again." };
+  }
 }

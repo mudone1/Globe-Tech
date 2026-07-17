@@ -7,6 +7,7 @@ import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import Skeleton from "@/components/Skeleton";
+import { getGrantCategory } from "@/lib/grantCategories";
 import type { ApplicationRecord, StaffRecord } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -27,7 +28,7 @@ function ApplicationsBrowser() {
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [industryFilter, setIndustryFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [stateFilter, setStateFilter] = useState("all");
   const [page, setPage] = useState(0);
 
@@ -61,9 +62,9 @@ function ApplicationsBrowser() {
     load();
   }, []);
 
-  const industries = useMemo(() => {
+  const categories = useMemo(() => {
     if (!apps) return [];
-    return Array.from(new Set(apps.map((a) => a.industry).filter(Boolean))).sort();
+    return Array.from(new Set(apps.map((a) => a.grantCategory).filter(Boolean))).sort();
   }, [apps]);
 
   const states = useMemo(() => {
@@ -76,7 +77,7 @@ function ApplicationsBrowser() {
     const q = search.trim().toLowerCase();
     return apps.filter((a) => {
       if (statusFilter !== "all" && a.status !== statusFilter) return false;
-      if (industryFilter !== "all" && a.industry !== industryFilter) return false;
+      if (categoryFilter !== "all" && a.grantCategory !== categoryFilter) return false;
       if (stateFilter !== "all" && a.stateOfResidence !== stateFilter) return false;
       if (!q) return true;
       return (
@@ -85,7 +86,7 @@ function ApplicationsBrowser() {
         a.email?.toLowerCase().includes(q)
       );
     });
-  }, [apps, search, statusFilter, industryFilter, stateFilter]);
+  }, [apps, search, statusFilter, categoryFilter, stateFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
@@ -134,13 +135,13 @@ function ApplicationsBrowser() {
         </select>
         <select
           className="input max-w-[180px]"
-          value={industryFilter}
-          onChange={(e) => resetPage(setIndustryFilter)(e.target.value)}
+          value={categoryFilter}
+          onChange={(e) => resetPage(setCategoryFilter)(e.target.value)}
         >
-          <option value="all">All industries</option>
-          {industries.map((i) => (
-            <option key={i} value={i}>
-              {i}
+          <option value="all">All grant categories</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {getGrantCategory(c).name}
             </option>
           ))}
         </select>
@@ -164,9 +165,9 @@ function ApplicationsBrowser() {
             <tr>
               <th className="px-4 py-3">Applicant</th>
               <th className="px-4 py-3">Business</th>
-              <th className="px-4 py-3">Industry</th>
+              <th className="px-4 py-3">Grant category</th>
               <th className="px-4 py-3">State</th>
-              <th className="px-4 py-3">Requested</th>
+              <th className="px-4 py-3">Amount</th>
               <th className="px-4 py-3">Referred by</th>
               <th className="px-4 py-3">Status</th>
               <th className="px-4 py-3">Submitted</th>
@@ -215,12 +216,15 @@ function ApplicationsBrowser() {
                     >
                       {a.applicantName || "—"}
                     </Link>
+                    {a.isTest && (
+                      <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-medium text-gold">Test</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-slate">{a.businessName || "—"}</td>
-                  <td className="px-4 py-3 text-slate">{a.industry || "—"}</td>
+                  <td className="px-4 py-3 text-slate">{a.grantCategory ? getGrantCategory(a.grantCategory).name : "—"}</td>
                   <td className="px-4 py-3 text-slate">{a.stateOfResidence || "—"}</td>
                   <td className="px-4 py-3 text-slate">
-                    {a.grantAmountRequested ? `₦${a.grantAmountRequested.toLocaleString()}` : "—"}
+                    {a.grantAmount ? `₦${a.grantAmount.toLocaleString()}` : "—"}
                   </td>
                   <td className="px-4 py-3 text-slate">
                     {a.referredBy === "unassigned" ? "Unassigned" : staff?.fullName ?? a.referredBy}

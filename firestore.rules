@@ -71,6 +71,21 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // payoutSettings — the ₦-per-completed-Phase-2 commission rate, editable
+    // by any admin directly from /admin/settings.
+    match /payoutSettings/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // payoutRecords — one row per payment made to a staff member, recorded
+    // by an admin on /admin/payouts. Append-mostly ledger — admins can also
+    // edit/delete a record to fix a mistaken entry.
+    match /payoutRecords/{recordId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
     // admins allowlist — managed by hand in the console, never via the app.
     match /admins/{uid} {
       allow read: if isSignedIn();

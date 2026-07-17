@@ -424,6 +424,74 @@ textarea.field {
   color: var(--text);
 }
 
+.categoryGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.categoryCard {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 14px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
+}
+.categoryCard:hover {
+  border-color: var(--gold);
+  background: var(--gold-dim);
+  transform: translateY(-1px);
+}
+.categoryCard .catName {
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  font-size: 16px;
+  color: var(--text);
+}
+.categoryCard .catWho {
+  margin-top: 3px;
+  font-size: 12.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+.categoryCard .catAmount {
+  flex-shrink: 0;
+  font-family: "IBM Plex Mono", monospace;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.drawInfo {
+  margin-top: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  border-radius: 12px;
+}
+.drawInfo .drawTitle {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--teal);
+  margin: 0 0 8px;
+}
+.drawInfo ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
 .checkline {
   display: flex;
   align-items: flex-start;

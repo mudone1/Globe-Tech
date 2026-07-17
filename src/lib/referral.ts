@@ -31,6 +31,25 @@ export async function resolveStaffIdFromToken(token: string | undefined | null):
 }
 
 /**
+ * Whether this token has been manually flagged isTest in Firestore — visits
+ * and applications through it still work exactly like any other link, but
+ * get excluded from analytics (KPIs, charts, leaderboard). Useful for a
+ * standing "test" referral link you reuse to check the live form without
+ * polluting real numbers. Never throws — defaults to false.
+ */
+export async function isTokenFlaggedTest(token: string | undefined | null): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const snap = await getAdminDb().collection("linkTokens").doc(token).get();
+    if (!snap.exists) return false;
+    return Boolean((snap.data() as LinkTokenRecord).isTest);
+  } catch (err) {
+    console.error("isTokenFlaggedTest failed:", err);
+    return false;
+  }
+}
+
+/**
  * Generates a token for a staffId if one doesn't already exist, and returns
  * it. Tokens are created once and never regenerated for an existing staffId
  * (per the build plan), so a previously shared link keeps working.
@@ -62,13 +81,4 @@ export async function getOrCreateTokenForStaff(staffId: string): Promise<string>
     } satisfies LinkTokenRecord);
 
   return token;
-}
-
-/**
- * Produces the code the applicant will manually type into FirstBank's
- * referral field. Kept short and easy to read/say aloud over the phone.
- */
-export function generateFirstBankReferralCode(): string {
-  const code = customAlphabet("23456789ABCDEFGHJKMNPQRSTUVWXYZ", 6)();
-  return `GT-${code}`;
 }

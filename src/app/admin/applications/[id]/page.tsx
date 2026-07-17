@@ -7,7 +7,8 @@ import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
-import { APPLICATION_FIELD_GROUPS, formatFieldValue } from "@/lib/applicationFields";
+import { getApplicationFieldGroups, formatFieldValue } from "@/lib/applicationFields";
+import { getGrantCategory } from "@/lib/grantCategories";
 import type { ApplicationRecord, StaffRecord } from "@/lib/types";
 
 export default function ApplicationDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -94,12 +95,10 @@ function ApplicationDetail({ id }: { id: string }) {
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="font-mono text-xs uppercase tracking-widest text-gold">
-                  {record.supportCategory || "Application"}
+                  {getGrantCategory(record.grantCategory).name}
                 </p>
                 <h1 className="mt-1 font-display text-2xl font-semibold text-ink">{record.applicantName}</h1>
-                <p className="mt-1 text-sm text-slate">
-                  {record.businessName} · {record.industry}
-                </p>
+                <p className="mt-1 text-sm text-slate">{record.businessName}</p>
               </div>
               <div className="text-right">
                 <span
@@ -137,17 +136,17 @@ function ApplicationDetail({ id }: { id: string }) {
                 </p>
               </div>
               <div>
-                <p className="text-slate">Amount requested</p>
+                <p className="text-slate">Grant amount</p>
                 <p className="font-medium text-ink">
-                  {record.grantAmountRequested ? `₦${record.grantAmountRequested.toLocaleString()}` : "—"}
+                  {record.grantAmount ? `₦${record.grantAmount.toLocaleString()}` : "—"}
                 </p>
               </div>
               <div>
-                <p className="text-slate">FirstBank referral code</p>
+                <p className="text-slate">Grant Code</p>
                 <div className="flex items-center gap-2">
-                  <p className="font-mono font-medium text-ink">{record.firstBankReferralCode}</p>
-                  {record.firstBankReferralCode && (
-                    <CopyButton value={record.firstBankReferralCode} label="Copy" />
+                  <p className="font-mono font-medium text-ink">{record.grantCode}</p>
+                  {record.grantCode && (
+                    <CopyButton value={record.grantCode} label="Copy" />
                   )}
                 </div>
               </div>
@@ -155,7 +154,7 @@ function ApplicationDetail({ id }: { id: string }) {
           </header>
 
           <div className="space-y-6">
-            {APPLICATION_FIELD_GROUPS.map((group, i) => (
+            {getApplicationFieldGroups(record).map((group, i) => (
               <section
                 key={group.title}
                 className="card-rise rounded-card border border-line bg-white p-6 shadow-sm"
@@ -166,7 +165,20 @@ function ApplicationDetail({ id }: { id: string }) {
                   {group.fields.map((field) => (
                     <div key={field.key}>
                       <dt className="text-xs uppercase tracking-wide text-slate">{field.label}</dt>
-                      <dd className="mt-1 whitespace-pre-wrap text-sm text-ink">{formatFieldValue(record, field)}</dd>
+                      {field.type === "link" && record[field.key] ? (
+                        <dd className="mt-1 text-sm">
+                          <a
+                            href={String(record[field.key])}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-brand hover:underline"
+                          >
+                            View document ↗
+                          </a>
+                        </dd>
+                      ) : (
+                        <dd className="mt-1 whitespace-pre-wrap text-sm text-ink">{formatFieldValue(record, field)}</dd>
+                      )}
                     </div>
                   ))}
                 </dl>

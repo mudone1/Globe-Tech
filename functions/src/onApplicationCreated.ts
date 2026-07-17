@@ -4,17 +4,14 @@ import { google } from "googleapis";
 import { db } from "./admin";
 
 /**
- * PHASE 3 — not active yet.
+ * SUPERSEDED — kept for reference only, not deployed.
  *
- * This function is fully wired but will only run once you:
- *   1. Provide a Resend or SendGrid API key (RESEND_API_KEY)
- *   2. Verify a sender domain with that provider
- *   3. Create a blank backup Google Sheet and share edit access with the
- *      same service account used for the onboarding sync, then set
- *      APPLICATIONS_BACKUP_SHEET_ID
- *
- * Until then, deploy it if you like — it will simply fail gracefully and
- * log to emailLogs, which is safe, but nothing will be emailed to applicants.
+ * Email sending now happens directly in the Next.js app (see
+ * src/lib/email.ts and src/app/apply/[token]/actions.ts), the same way the
+ * onboarding sheet sync moved out of Cloud Functions — it avoids requiring
+ * Firebase's Blaze (pay-as-you-go) plan just to send an email. This file is
+ * left here in case you later move to Blaze and want a Firestore-trigger
+ * version instead, or want the Sheets-backup half of what this used to do.
  */
 
 const resendApiKey = defineString("RESEND_API_KEY");
@@ -73,7 +70,7 @@ export const onApplicationCreated = onDocumentCreated(
     let emailError: string | null = null;
 
     try {
-      await sendPhase2Email(app.email, app.applicantName, app.firstBankReferralCode);
+      await sendPhase2Email(app.email, app.applicantName, app.grantCode);
     } catch (err) {
       emailOk = false;
       emailError = err instanceof Error ? err.message : String(err);

@@ -106,19 +106,69 @@ link itself is never shown outside that authenticated admin page. If you'd rathe
 further (e.g. only specific admin accounts, via a Google Shared Drive), that's a follow-up worth
 doing once you've confirmed the basic flow works.
 
-## 4. Enabling Phase 3 (automated email + Sheets backup)
+## 4. Grant Code email (sent immediately after every application)
 
-`functions/src/onApplicationCreated.ts` is fully written but needs:
+The moment someone submits the grant application (`submitApplication` in `src/app/apply/[token]/actions.ts`),
+two things happen right there in the same request, after the application is saved to Firestore:
 
-- A Resend or SendGrid account and API key, with a verified sender domain → `RESEND_API_KEY`
-- A new, blank Google Sheet for the applications backup, shared (edit access) with the same
-  service account used above → `APPLICATIONS_BACKUP_SHEET_ID`
+1. Their **Grant Code** is set to the `staffId` of whoever's referral link they applied through
+   (`application.referredBy`) — not a separately generated code. This is what they enter in the
+   **Additional Information** box on FirstBank's account-opening form, so FirstBank/Globe-Tech can
+   trace the new account back to the referring staff member.
+2. An email goes out immediately (`src/lib/email.ts`, via Resend) walking them through all 10 steps
+   of opening their FirstSME Basic account, with their Grant Code called out prominently near the
+   top and re-emphasized at Step 6 (where it's actually entered) — mirrors
+   `FirstSME_Basic_Account_Guide.docx` step for step, screenshots included.
 
-Until those are set, new applications will still save correctly to Firestore — they just won't
-trigger an email or backup row yet, and the failure is logged to `emailLogs` rather than silently
-disappearing.
+A failed send never fails the application itself (it's already saved) — it's logged to `emailLogs`
+with the error, so it's visible to admins instead of silently disappearing.
 
-## 5. What's intentionally not automated
+**To wire it up:**
+
+1. Sign up for [Resend](https://resend.com) (or swap the fetch call in `src/lib/email.ts` for
+   SendGrid if you'd rather use that).
+2. Verify `globetechimpact.com` (or whichever domain you're sending from) with Resend — this means
+   adding a few DNS records (SPF, DKIM) at wherever that domain's DNS is managed, same idea as the
+   subdomain setup for the app itself.
+3. Add to your environment variables (locally and in Vercel):
+   ```
+   RESEND_API_KEY=
+   GRANT_EMAIL_FROM=Globe-Tech SME Grant <grant@globetechimpact.com>   (optional — this is the default)
+   ```
+4. Make sure `NEXT_PUBLIC_APP_URL` is set (it already should be, from setting up the apply-page
+   domain) — the email's screenshots are hosted at `{NEXT_PUBLIC_APP_URL}/email/step-1.png` through
+   `step-10.png`, so this needs to point at your real live domain for the images to load in the
+   email.
+5. Redeploy.
+
+The 10 screenshots live in `public/email/` — replace them (same filenames) if FirstBank's account-
+opening flow ever changes its screens, and update the step text in `buildGrantCodeEmailHtml()` in
+`src/lib/email.ts` to match.
+
+The optional applications-backup-to-a-Google-Sheet piece from the original Phase 3 plan is separate
+from this and still lives in `functions/src/onApplicationCreated.ts` (undeployed, Cloud-Functions-
+only, needs Blaze) — not required for the email to work.
+
+## 5. Staff payouts
+
+Two new admin pages, no external service needed — just Firestore:
+
+- **`/admin/settings`** — set the ₦ amount paid to a staff member for each of their referrals that
+  reaches Phase 2 complete (`payoutSettings/rate`). This also drives the "Expected payout" figure
+  on the Analytics dashboard (replaces the old "Total requested" card).
+- **`/admin/payouts`** — for every staff member with at least one completed referral: how much
+  they've earned, how much they've actually been paid so far, and what's outstanding. "Record
+  payment" logs one entry per payment made (`payoutRecords`), so partial/installment payments are
+  tracked properly rather than a single paid/unpaid flag.
+
+**Important:** this adds two new Firestore collections (`payoutSettings`, `payoutRecords`), which
+means the security rules changed. If you've already deployed rules before, redeploy them:
+```bash
+firebase deploy --only firestore:rules
+```
+Skipping this will show "Access denied" on both new pages even though everything else works fine.
+
+## 6. What's intentionally not automated
 
 Per the build plan, FirstBank's onboarding form is outside anything this project can script.
 Phase 4 is a manual hand-off: the referral code is shown in large text on the confirmation screen
@@ -126,7 +176,7 @@ and in the Phase-2 email, with plain instructions for where to paste it. There's
 FirstBank's form — an admin marks "Phase 2 complete" by hand once they confirm the applicant has
 opened the account.
 
-## 6. What to send back before the next phase
+## 7. What to send back before the next phase
 
 - **Before Phase 2 polish**: confirm if any fields beyond the six in the plan (name, email,
   phone, business name, business type, grant amount) should be on the application form.
