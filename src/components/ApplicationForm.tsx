@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Image from "next/image";
-import { recordVisit, submitApplication, uploadCacDocument } from "@/app/apply/[token]/actions";
+import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
 import { GRANT_CATEGORIES, DRAW_INFO, type GrantTier } from "@/lib/grantCategories";
 import { getGrantQuestions, DECLARATION_TEXT, type GrantQuestion } from "@/lib/grantQuestions";
 import type { GrantCategoryId } from "@/lib/types";
 import styles from "@/components/ChatApplicationForm.module.css";
 
-type FieldValue = string | number | { url: string; fileName: string } | boolean | null;
+type FieldValue = string | number | boolean | null;
 type Answers = Record<string, FieldValue>;
 
 interface TranscriptItem {
@@ -190,7 +190,6 @@ export default function ApplicationForm({ token }: Props) {
     setStage("submitting");
     setSubmitError(null);
 
-    const cacDoc = answers.cacDocument as { url: string; fileName: string } | null;
     const res = await submitApplication({
       token,
       honeypot,
@@ -206,8 +205,6 @@ export default function ApplicationForm({ token }: Props) {
       businessLocation: typeof answers.businessLocation === "string" ? answers.businessLocation : undefined,
       monthlyProductCost: typeof answers.monthlyProductCost === "number" ? answers.monthlyProductCost : undefined,
       cacNumber: typeof answers.cacNumber === "string" ? answers.cacNumber : undefined,
-      cacDocumentUrl: cacDoc?.url,
-      cacDocumentFileName: cacDoc?.fileName,
       businessDescription: typeof answers.businessDescription === "string" ? answers.businessDescription : undefined,
       declarationAgreed: answers.declarationAgreed === "accepted",
     });
@@ -350,13 +347,11 @@ export default function ApplicationForm({ token }: Props) {
                     <div key={q.id} className={styles.sumRow}>
                       <div className={styles.sumK}>{q.label}</div>
                       <div className={styles.sumV}>
-                        {q.id === "cacDocument"
-                          ? (answers.cacDocument as { fileName: string } | null)?.fileName ?? "—"
-                          : q.type === "number"
-                            ? answers[q.id]
-                              ? `₦${Number(answers[q.id]).toLocaleString()}`
-                              : "—"
-                            : (answers[q.id] as string) || "—"}
+                        {q.type === "number"
+                          ? answers[q.id]
+                            ? `₦${Number(answers[q.id]).toLocaleString()}`
+                            : "—"
+                          : (answers[q.id] as string) || "—"}
                       </div>
                     </div>
                   ))}
@@ -464,8 +459,6 @@ function Composer({ q, onAnswer }: { q: GrantQuestion; onAnswer: (id: string, va
   const isRequired = required(q);
   const [value, setValue] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploaded, setUploaded] = useState<{ url: string; fileName: string } | null>(null);
   const [declarationChecked, setDeclarationChecked] = useState(false);
   const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement & HTMLSelectElement>(null);
 
@@ -504,22 +497,6 @@ function Composer({ q, onAnswer }: { q: GrantQuestion; onAnswer: (id: string, va
     onAnswer(q.id, str || null, str || "—");
   }
 
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError(null);
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await uploadCacDocument(formData);
-    setUploading(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    setUploaded({ url: res.url, fileName: res.fileName });
-  }
-
   function handleKeyDown(e: KeyboardEvent) {
     if (e.key === "Enter" && q.type !== "textarea") {
       e.preventDefault();
@@ -542,42 +519,6 @@ function Composer({ q, onAnswer }: { q: GrantQuestion; onAnswer: (id: string, va
         </select>
         <div className={styles.rowActions}>
           <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => attemptText(value)}>
-            Continue →
-          </button>
-        </div>
-        {error && <p className={styles.errorText}>{error}</p>}
-      </div>
-    );
-  }
-
-  if (q.type === "file") {
-    return (
-      <div className={styles.composerInner}>
-        {!uploaded ? (
-          <label className={styles.fileDrop}>
-            <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFileChange} />
-            <span style={{ color: "var(--muted)", fontSize: 14 }}>
-              {uploading ? "Uploading…" : "📎 Tap to choose a file (JPG, PNG, or PDF)"}
-            </span>
-          </label>
-        ) : (
-          <div className={styles.fileName}>
-            <span>✓ {uploaded.fileName}</span>
-            <button
-              type="button"
-              onClick={() => setUploaded(null)}
-              style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13 }}
-            >
-              Replace
-            </button>
-          </div>
-        )}
-        <div className={styles.rowActions}>
-          <button
-            className={`${styles.btn} ${styles.btnPrimary}`}
-            disabled={!uploaded}
-            onClick={() => uploaded && onAnswer(q.id, uploaded, uploaded.fileName)}
-          >
             Continue →
           </button>
         </div>

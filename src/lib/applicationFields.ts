@@ -30,8 +30,7 @@ const TRADER_FIELDS: FieldMeta[] = [
 ];
 
 const CAC_FIELDS: FieldMeta[] = [
-  { key: "cacNumber", label: "CAC registration number" },
-  { key: "cacDocumentUrl", label: "CAC document", type: "link" },
+  { key: "cacNumber", label: "BN / RC number" },
   { key: "businessDescription", label: "Business description" },
 ];
 

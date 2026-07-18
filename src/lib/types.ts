@@ -78,8 +78,6 @@ export interface ApplicationRecord {
 
   // Categories 4–6 only (registered Business Name or LLC)
   cacNumber?: string;
-  cacDocumentUrl?: string; // Google Drive "view" link
-  cacDocumentFileName?: string;
   businessDescription?: string;
 
   declarationAgreed: boolean;

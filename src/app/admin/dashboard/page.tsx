@@ -204,7 +204,7 @@ function Dashboard() {
     const headers = [
       "applicationId", "applicantName", "phone", "email", "stateOfResidence", "businessName",
       "grantCategory", "grantAmount", "grantNeedExplanation", "businessType", "businessLocation",
-      "monthlyProductCost", "cacNumber", "cacDocumentUrl", "businessDescription",
+      "monthlyProductCost", "cacNumber", "businessDescription",
       "referredBy", "grantCode", "status", "createdAt",
     ];
     const lines = [

@@ -4,7 +4,6 @@ import { cookies } from "next/headers";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
 import { sendGrantCodeEmail } from "@/lib/email";
-import { uploadCacDocumentToDrive, describeDriveUploadError } from "@/lib/googleDrive";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
 import { maskEmail } from "@/lib/maskEmail";
 import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
@@ -65,8 +64,6 @@ export interface SubmitApplicationInput {
 
   // Enterprise/LLC categories (4–6) only
   cacNumber?: string;
-  cacDocumentUrl?: string;
-  cacDocumentFileName?: string;
   businessDescription?: string;
 
   declarationAgreed: boolean;
@@ -113,9 +110,6 @@ export async function submitApplication(
       ["CAC registration number", input.cacNumber ?? ""],
       ["Business description", input.businessDescription ?? ""]
     );
-    if (!input.cacDocumentUrl) {
-      return { ok: false, error: "Upload your CAC registration document." };
-    }
   }
 
   for (const [label, value] of requiredStrings) {
@@ -195,8 +189,6 @@ export async function submitApplication(
         }
       : {
           cacNumber: (input.cacNumber ?? "").trim(),
-          cacDocumentUrl: input.cacDocumentUrl,
-          cacDocumentFileName: input.cacDocumentFileName,
           businessDescription: (input.businessDescription ?? "").trim(),
         }),
 
@@ -246,27 +238,4 @@ export async function submitApplication(
   }
 
   return { ok: true, grantCode };
-}
-
-export type UploadCacDocumentResult = { ok: true; url: string; fileName: string } | { ok: false; error: string };
-
-const ALLOWED_CAC_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
-const MAX_CAC_BYTES = 10 * 1024 * 1024;
-
-export async function uploadCacDocument(formData: FormData): Promise<UploadCacDocumentResult> {
-  const file = formData.get("file") as File | null;
-  if (!file || file.size === 0) return { ok: false, error: "Choose a file first." };
-  if (file.size > MAX_CAC_BYTES) return { ok: false, error: "That file is too large — max 10MB." };
-  if (!ALLOWED_CAC_TYPES.includes(file.type)) {
-    return { ok: false, error: "Upload a JPG, PNG, or PDF file." };
-  }
-
-  try {
-    const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await uploadCacDocumentToDrive(buffer, file.name, file.type);
-    return { ok: true, url: result.webViewLink, fileName: file.name };
-  } catch (err) {
-    console.error("uploadCacDocument failed:", err);
-    return { ok: false, error: describeDriveUploadError(err) };
-  }
 }

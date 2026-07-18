@@ -1,7 +1,7 @@
 import { NIGERIA_STATES } from "@/lib/nigeriaStates";
 import type { GrantTier } from "@/lib/grantCategories";
 
-export type GQType = "text" | "email" | "tel" | "select" | "textarea" | "number" | "file" | "checkbox";
+export type GQType = "text" | "email" | "tel" | "select" | "textarea" | "number" | "checkbox";
 
 export interface GrantQuestion {
   id: string;
@@ -48,16 +48,9 @@ function cacTail(tier: "enterprise" | "llc"): GrantQuestion[] {
     {
       id: "cacNumber",
       type: "text",
-      label: isLlc ? "CAC company registration number" : "CAC Business Name registration number",
-      question: isLlc ? "What's your CAC company registration (RC) number?" : "What's your CAC Business Name registration number?",
-    },
-    {
-      id: "cacDocument",
-      type: "file",
-      label: isLlc ? "CAC registration documents" : "CAC Business Name certificate",
-      question: isLlc
-        ? "Please upload your CAC full company registration documents."
-        : "Please upload your CAC Business Name certificate.",
+      label: isLlc ? "RC number" : "BN number",
+      question: isLlc ? "What's your CAC RC (company registration) number?" : "What's your CAC BN (Business Name registration) number?",
+      placeholder: isLlc ? "RC1234567" : "BN1234567",
     },
     { id: "businessDescription", type: "textarea", label: "Business description", question: "Briefly, what does your business do?" },
   ];
