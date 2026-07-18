@@ -25,6 +25,30 @@ function getDriveClient() {
   return google.drive({ version: "v3", auth });
 }
 
+/**
+ * Turns a Drive upload failure into a message that's actually useful —
+ * "couldn't upload, try again" tells you nothing when the real cause is a
+ * missing env var or a permissions mistake on the shared folder. None of
+ * these messages contain secrets (env var names and Google's own API error
+ * text aren't sensitive), so it's safe to show them directly.
+ */
+export function describeDriveUploadError(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("is not set")) {
+    return `Upload isn't configured yet: ${message}`;
+  }
+  if (message.includes("File not found") || message.includes("notFound")) {
+    return "Upload failed: the destination Drive folder wasn't found — check the folder ID env var is correct and the folder still exists.";
+  }
+  if (message.includes("insufficient") || message.includes("403") || message.includes("permission")) {
+    return "Upload failed: the service account doesn't have permission to upload to that folder — check it's shared as Editor.";
+  }
+  if (message.includes("invalid_grant") || message.includes("401") || message.includes("Invalid JWT")) {
+    return "Upload failed: the Google service account credentials look invalid — check GOOGLE_SHEETS_PRIVATE_KEY was pasted in full, newlines and all.";
+  }
+  return `Couldn't upload your file: ${message}`;
+}
+
 export interface DriveUploadResult {
   fileId: string;
   webViewLink: string;

@@ -4,8 +4,9 @@ import { cookies } from "next/headers";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
 import { sendGrantCodeEmail } from "@/lib/email";
-import { uploadCacDocumentToDrive } from "@/lib/googleDrive";
+import { uploadCacDocumentToDrive, describeDriveUploadError } from "@/lib/googleDrive";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
+import { maskEmail } from "@/lib/maskEmail";
 import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
 
 const REF_COOKIE = "gt_ref_token";
@@ -136,6 +137,24 @@ export async function submitApplication(
     return { ok: false, error: "Please enter a valid phone number." };
   }
 
+  // One phone number = one applicant. The same email can apply multiple
+  // times (e.g. for different businesses), but a repeat phone number means
+  // this is very likely the same person re-applying — point them back to
+  // their existing application instead of creating a duplicate.
+  const normalizedPhone = input.phone.trim();
+  const existingByPhone = await getAdminDb()
+    .collection("applications")
+    .where("phone", "==", normalizedPhone)
+    .limit(1)
+    .get();
+  if (!existingByPhone.empty) {
+    const existing = existingByPhone.docs[0]!.data() as ApplicationRecord;
+    return {
+      ok: false,
+      error: `An application has already been submitted using this phone number. Please check your email (${maskEmail(existing.email)}) for your previous application and Grant Code.`,
+    };
+  }
+
   // Resolve fresh from the token — don't trust anything the client claims
   // about who referred them. Fall back to the cookie if the token itself
   // is missing (e.g. a future multi-step flow that drops the URL segment).
@@ -202,6 +221,7 @@ export async function submitApplication(
       grantCode,
       grantCategoryName: category.name,
       grantAmount: category.amount,
+      applicationId: docRef.id,
     });
     await docRef.update({ status: "phase2_email_sent" });
     await getAdminDb().collection("emailLogs").add({
@@ -247,6 +267,6 @@ export async function uploadCacDocument(formData: FormData): Promise<UploadCacDo
     return { ok: true, url: result.webViewLink, fileName: file.name };
   } catch (err) {
     console.error("uploadCacDocument failed:", err);
-    return { ok: false, error: "Couldn't upload your file right now. Please try again." };
+    return { ok: false, error: describeDriveUploadError(err) };
   }
 }

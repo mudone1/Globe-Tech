@@ -145,6 +145,50 @@ function PersonalDashboard() {
               </div>
             </section>
           )}
+
+          {data.applicants.length > 0 && (
+            <section className="card-rise mt-8" style={{ "--delay": "220ms" } as CSSProperties}>
+              <h2 className="mb-3 font-display text-xl font-semibold text-ink">Your applicants</h2>
+              <p className="mb-4 text-sm text-slate">
+                Everyone who applied through your link (or your team's). Account details stay
+                private — you only see verification progress.
+              </p>
+              <div className="overflow-hidden rounded-card border border-line bg-white">
+                <table className="w-full text-left text-sm">
+                  <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
+                    <tr>
+                      <th className="px-4 py-3">Applicant</th>
+                      <th className="px-4 py-3">Business</th>
+                      <th className="px-4 py-3">Grant category</th>
+                      <th className="px-4 py-3">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.applicants.map((a, i) => (
+                      <tr
+                        key={a.applicationId}
+                        className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                        style={{ "--delay": `${Math.min(i, 12) * 40}ms` } as CSSProperties}
+                      >
+                        <td className="px-4 py-3 font-medium text-ink">{a.applicantName}</td>
+                        <td className="px-4 py-3 text-slate">{a.businessName}</td>
+                        <td className="px-4 py-3 text-slate">{a.grantCategoryName}</td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                              a.statusLabel === "Completed" ? "bg-brand/10 text-brand" : "bg-goldSoft text-ink"
+                            }`}
+                          >
+                            {a.statusLabel}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
         </>
       )}
     </main>

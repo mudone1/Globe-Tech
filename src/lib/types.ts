@@ -90,6 +90,44 @@ export interface ApplicationRecord {
   grantCode: string; // the referring staff member's staffId — what the applicant enters
                       // as "Additional Information" on FirstBank's account-opening form
   isTest?: boolean; // submitted through a link flagged isTest — excluded from analytics
+
+  // Phase 2 — FirstBank SME account verification. The account-details form
+  // unlocks 48h after phase1SubmittedAt (computed client/server-side from
+  // that timestamp, not stored separately). See src/lib/phase2Verification.ts.
+  bankAccountNumber?: string;
+  bankAccountName?: string;
+  accountDetailsSubmittedAt?: string;
+  phase2VerificationStatus?: Phase2VerificationStatus;
+  phase2VerifiedAt?: string; // set only when status becomes "completed"
+  phase2VerifiedBatchId?: string; // which bank upload batch produced the match
+  phase2AdminNote?: string; // optional admin note, e.g. reason for "invalid_account"
+}
+
+export type Phase2VerificationStatus =
+  | "awaiting_verification" // applicant submitted account details, no bank match yet
+  | "account_type_not_verified" // name matched a bank row but the account itself didn't
+  | "verification_failed" // no match found in the most recent bank upload
+  | "invalid_account" // admin manually confirmed this is not a valid FirstBank SME account
+  | "completed"; // account number + name both matched a bank upload row
+
+export interface BankValidationRow {
+  accountNumber: string;
+  accountName: string;
+  bankReference?: string;
+}
+
+// One doc per bank-data upload. Rows are stored inline (not a subcollection)
+// since a quarterly batch is expected to be at most a few thousand rows —
+// comfortably under Firestore's 1MiB document limit.
+export interface BankValidationBatchRecord {
+  id: string; // doc ID
+  fileName: string;
+  uploadedAt: string;
+  uploadedBy?: string; // admin's Firebase Auth UID
+  rows: BankValidationRow[];
+  // Outcome summary from the matching run performed at upload time.
+  matchedCount: number;
+  partialCount: number; // "account_type_not_verified"
 }
 
 export interface EmailLogRecord {

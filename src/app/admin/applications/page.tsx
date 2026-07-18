@@ -8,6 +8,7 @@ import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import Skeleton from "@/components/Skeleton";
 import { getGrantCategory } from "@/lib/grantCategories";
+import { PHASE2_STATUS_INFO } from "@/lib/phase2Status";
 import type { ApplicationRecord, StaffRecord } from "@/lib/types";
 
 const PAGE_SIZE = 25;
@@ -234,10 +235,12 @@ function ApplicationsBrowser() {
                       className={`rounded-full px-2.5 py-1 text-xs font-medium ${
                         a.status === "phase2_marked_complete"
                           ? "bg-brand/10 text-brand"
-                          : "bg-goldSoft text-ink"
+                          : a.phase2VerificationStatus === "invalid_account"
+                            ? "bg-bad/10 text-bad"
+                            : "bg-goldSoft text-ink"
                       }`}
                     >
-                      {statusLabel[a.status] ?? a.status}
+                      {a.phase2VerificationStatus ? PHASE2_STATUS_INFO[a.phase2VerificationStatus].label : statusLabel[a.status] ?? a.status}
                     </span>
                   </td>
                   <td className="px-4 py-3 text-slate">

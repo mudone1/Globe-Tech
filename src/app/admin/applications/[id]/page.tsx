@@ -9,7 +9,8 @@ import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
 import { getApplicationFieldGroups, formatFieldValue } from "@/lib/applicationFields";
 import { getGrantCategory } from "@/lib/grantCategories";
-import type { ApplicationRecord, StaffRecord } from "@/lib/types";
+import { isPhase2Unlocked, phase2UnlocksAt, PHASE2_STATUS_INFO } from "@/lib/phase2Status";
+import type { ApplicationRecord, StaffRecord, Phase2VerificationStatus } from "@/lib/types";
 
 export default function ApplicationDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = usePromise(params);
@@ -62,14 +63,29 @@ function ApplicationDetail({ id }: { id: string }) {
     load();
   }, [id]);
 
-  async function markComplete() {
+  async function markInvalid() {
+    if (!record) return;
+    setMarking(true);
+    try {
+      await updateDoc(doc(getFirebaseDb(), "applications", record.applicationId), {
+        phase2VerificationStatus: "invalid_account" satisfies Phase2VerificationStatus,
+      });
+      setRecord({ ...record, phase2VerificationStatus: "invalid_account" });
+    } finally {
+      setMarking(false);
+    }
+  }
+
+  async function markCompleteManually() {
     if (!record) return;
     setMarking(true);
     try {
       await updateDoc(doc(getFirebaseDb(), "applications", record.applicationId), {
         status: "phase2_marked_complete",
+        phase2VerificationStatus: "completed" satisfies Phase2VerificationStatus,
+        phase2VerifiedAt: new Date().toISOString(),
       });
-      setRecord({ ...record, status: "phase2_marked_complete" });
+      setRecord({ ...record, status: "phase2_marked_complete", phase2VerificationStatus: "completed" });
     } finally {
       setMarking(false);
     }
@@ -106,19 +122,39 @@ function ApplicationDetail({ id }: { id: string }) {
                     record.status === "phase2_marked_complete" ? "bg-brand/10 text-brand" : "bg-goldSoft text-ink"
                   }`}
                 >
-                  {record.status === "phase2_marked_complete"
-                    ? "Phase 2 complete"
-                    : record.status === "phase2_email_sent"
-                      ? "Phase 2 email sent"
-                      : "Phase 1 submitted"}
+                  {record.phase2VerificationStatus
+                    ? PHASE2_STATUS_INFO[record.phase2VerificationStatus].label
+                    : isPhase2Unlocked(record.phase1SubmittedAt)
+                      ? "Phase 2 · Awaiting account details"
+                      : `Phase 2 locked until ${phase2UnlocksAt(record.phase1SubmittedAt).toLocaleString("en-NG")}`}
                 </span>
-                {record.status !== "phase2_marked_complete" && (
-                  <button onClick={markComplete} disabled={marking} className="mt-3 block btn-primary text-sm">
-                    {marking ? "Marking…" : "Mark Phase 2 complete"}
-                  </button>
+                {record.status !== "phase2_marked_complete" && record.accountDetailsSubmittedAt && (
+                  <div className="mt-3 flex flex-col gap-2">
+                    <button onClick={markCompleteManually} disabled={marking} className="btn-primary text-sm">
+                      {marking ? "Working…" : "Manually mark complete"}
+                    </button>
+                    {record.phase2VerificationStatus !== "invalid_account" && (
+                      <button onClick={markInvalid} disabled={marking} className="btn-secondary text-sm">
+                        Mark invalid account
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
+
+            {record.accountDetailsSubmittedAt && (
+              <div className="mt-5 grid grid-cols-2 gap-4 border-t border-line pt-5 text-sm sm:grid-cols-2">
+                <div>
+                  <p className="text-slate">Bank account number</p>
+                  <p className="font-mono font-medium text-ink">{record.bankAccountNumber}</p>
+                </div>
+                <div>
+                  <p className="text-slate">Bank account name</p>
+                  <p className="font-medium text-ink">{record.bankAccountName}</p>
+                </div>
+              </div>
+            )}
 
             <div className="mt-5 grid grid-cols-2 gap-4 border-t border-line pt-5 text-sm sm:grid-cols-4">
               <div>

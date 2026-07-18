@@ -27,6 +27,15 @@ function required(q: SignupQuestion): boolean {
   return q.required ?? true;
 }
 
+interface SavedDraft {
+  answers: Answers;
+  mouChecked: boolean[];
+  qIndex: number;
+  transcript: TranscriptItem[];
+  stage: Stage;
+  savedAt: number;
+}
+
 export default function SignupChatForm({ role }: { role: SignupRole }) {
   const config = ROLE_CONFIGS[role];
   const questions = useState(() => getSignupQuestions(role))[0];
@@ -40,13 +49,66 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [result, setResult] = useState<{ staffId: string; setupToken: string; pendingApproval: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState<SavedDraft | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const draftKey = `gt_signup_draft_${role}`;
+
+  // Look for a saved draft on this device so the applicant can pick up where
+  // they left off, even after closing the tab or reloading.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      if (raw) {
+        const parsed: SavedDraft = JSON.parse(raw);
+        if (parsed && parsed.transcript?.length > 0 && parsed.stage !== "done") {
+          setDraft(parsed);
+        }
+      }
+    } catch {
+      /* corrupt or unavailable storage — just start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave on every change; clear once actually submitted.
+  useEffect(() => {
+    if (stage === "welcome" && transcript.length === 0) return;
+    try {
+      if (stage === "done") {
+        window.localStorage.removeItem(draftKey);
+      } else {
+        const payload: SavedDraft = { answers, mouChecked, qIndex, transcript, stage, savedAt: Date.now() };
+        window.localStorage.setItem(draftKey, JSON.stringify(payload));
+      }
+    } catch {
+      /* localStorage may be unavailable — the session still works, it just won't resume after reload */
+    }
+  }, [answers, mouChecked, qIndex, transcript, stage, draftKey]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     });
   }, [transcript, typing, qIndex, stage]);
+
+  function resumeDraft() {
+    if (!draft) return;
+    setAnswers(draft.answers);
+    setMouChecked(draft.mouChecked);
+    setQIndex(draft.qIndex);
+    setTranscript(draft.transcript);
+    setStage(draft.stage);
+    setDraft(null);
+  }
+
+  function startFresh() {
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    setDraft(null);
+  }
 
   function askQuestion(idx: number) {
     const q = questions[idx];
@@ -202,11 +264,17 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
         <div className={styles.thread}>
           {stage === "welcome" && (
             <div className={styles.welcomeHero}>
-              <h1>Hi — let&rsquo;s get you signed up as a {config.title}.</h1>
-              <p>
-                A few questions, one at a time, same as our grant application. Have your NIN or
-                Voter&rsquo;s card ready for the ID check near the end.
-              </p>
+              {draft ? (
+                <h1>Welcome back — we can continue from where you stopped.</h1>
+              ) : (
+                <>
+                  <h1>Hi — let&rsquo;s get you signed up as a {config.title}.</h1>
+                  <p>
+                    A few questions, one at a time, same as our grant application. Have your NIN
+                    ready for the ID check near the end.
+                  </p>
+                </>
+              )}
             </div>
           )}
 
@@ -298,9 +366,20 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
           {stage === "welcome" && (
             <div className={styles.composerInner}>
               <div className={styles.rowActions}>
-                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={start}>
-                  Let&rsquo;s go →
-                </button>
+                {draft ? (
+                  <>
+                    <button className={`${styles.btn} ${styles.btnGhost}`} onClick={startFresh}>
+                      Start over
+                    </button>
+                    <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={resumeDraft}>
+                      Continue →
+                    </button>
+                  </>
+                ) : (
+                  <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={start}>
+                    Let&rsquo;s go →
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -470,7 +549,7 @@ function Composer({
           <label className={styles.fileDrop}>
             <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFileChange} />
             <span style={{ color: "var(--muted)", fontSize: 14 }}>
-              {uploading ? "Uploading…" : "📎 Tap to choose your NIN or Voter's card (JPG, PNG, or PDF)"}
+              {uploading ? "Uploading…" : "📎 Tap to choose your NIN (JPG, PNG, or PDF)"}
             </span>
           </label>
         ) : (

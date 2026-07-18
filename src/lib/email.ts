@@ -21,10 +21,12 @@ export function buildGrantCodeEmailHtml(opts: {
   appUrl: string;
   grantCategoryName: string;
   grantAmount: number;
+  applicationId: string;
 }): string {
-  const { applicantName, grantCode, appUrl, grantCategoryName, grantAmount } = opts;
+  const { applicantName, grantCode, appUrl, grantCategoryName, grantAmount, applicationId } = opts;
   const name = firstName(applicantName);
   const img = (n: number) => `${appUrl}/email/step-${n}.png`;
+  const continuationLink = `${appUrl}/apply/account-details/${applicationId}`;
 
   const steps: { title: string; body: string; image: number; callout?: string }[] = [
     { title: "Step 1: Start the application", body: "Click the link below, then click the black \u201cCreate Account\u201d button on the welcome page.", image: 1 },
@@ -101,6 +103,25 @@ export function buildGrantCodeEmailHtml(opts: {
             </tr>
             ${stepsHtml}
             <tr>
+              <td style="padding:28px 32px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0D2C1A;border:1px solid #1E4A2E;border-radius:10px;">
+                  <tr>
+                    <td style="padding:18px 20px;">
+                      <p style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#FFFFFF;">One more step — later</p>
+                      <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#D7E4D9;">
+                        Once you've finished opening your FirstBank account above, come back to the link below
+                        <strong>any time after 48 hours</strong> from now to submit your new account details \u2014
+                        that's the final step to complete your application. Bookmark this link or keep this email:
+                      </p>
+                      <a href="${continuationLink}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:14px;padding:11px 18px;border-radius:8px;text-decoration:none;">
+                        Submit my account details \u2192
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
               <td style="padding:28px 32px 32px;">
                 <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14.5px;line-height:1.6;color:#0B2A18;">
                   That's it \u2014 you're done! If you get stuck at any step, just reply to this email and we'll help you through it.
@@ -124,6 +145,7 @@ export async function sendGrantCodeEmail(opts: {
   grantCode: string;
   grantCategoryName: string;
   grantAmount: number;
+  applicationId: string;
 }): Promise<void> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
@@ -141,6 +163,7 @@ export async function sendGrantCodeEmail(opts: {
     appUrl,
     grantCategoryName: opts.grantCategoryName,
     grantAmount: opts.grantAmount,
+    applicationId: opts.applicationId,
   });
 
   const res = await fetch("https://api.resend.com/emails", {

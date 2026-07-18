@@ -168,7 +168,40 @@ firebase deploy --only firestore:rules
 ```
 Skipping this will show "Access denied" on both new pages even though everything else works fine.
 
-## 6. What's intentionally not automated
+## 6. Phase 2 — FirstBank account verification
+
+No external setup needed here — it's all Firestore + the app, but it's a real workflow worth
+understanding before you use it:
+
+1. **48-hour lock.** After an applicant submits their grant application, the Grant Code email
+   includes a continuation link (`/apply/account-details/{applicationId}`). That link shows a
+   "come back in Xh Ym" countdown until 48 hours have passed since submission — it can't be
+   bypassed by guessing the URL sooner.
+2. **Applicant submits account details.** Once unlocked, they enter their FirstBank account
+   number and name once (the form locks after submitting — no re-editing without an admin
+   correcting it directly in Firestore). Status becomes "Awaiting Verification".
+3. **Admin uploads FirstBank's validation file** on `/admin/verification` — a CSV or Excel export
+   with Account Number and Account Name columns (column headers are matched flexibly, e.g. "Acct
+   No" or "Account Number" both work). This is the only place that ever sees real account data —
+   Regional/State/Marketing staff only ever see the coarse status label on their personal
+   dashboard, never the numbers themselves (enforced both in the Firestore rules and in what the
+   `getMyDashboardData` server action returns).
+4. **Matching runs automatically** on every upload, against everyone currently pending:
+   - Account number + name both match → **Completed** (this is what finally flips `status` to
+     `phase2_marked_complete`, so it feeds the Analytics dashboard and Payouts exactly like the
+     old manual toggle used to).
+   - Name matches but the account number doesn't → **Account Type Not Yet Verified** — stays in
+     the pool, gets automatically re-checked against every future upload without the applicant
+     doing anything.
+   - No match at all → **Verification Failed** — same automatic re-check on the next upload.
+   - **Invalid Account Submitted** is never automatic — an admin sets this manually from
+     `/admin/verification` or the application detail page, per the spec's "requires administrator
+     confirmation before any disqualification action."
+5. Admins can also manually override in either direction from the application detail page
+   (`Manually mark complete` / `Mark invalid account`) for edge cases the upload data doesn't
+   capture.
+
+## 7. What's intentionally not automated
 
 Per the build plan, FirstBank's onboarding form is outside anything this project can script.
 Phase 4 is a manual hand-off: the referral code is shown in large text on the confirmation screen
@@ -176,7 +209,7 @@ and in the Phase-2 email, with plain instructions for where to paste it. There's
 FirstBank's form — an admin marks "Phase 2 complete" by hand once they confirm the applicant has
 opened the account.
 
-## 7. What to send back before the next phase
+## 8. What to send back before the next phase
 
 - **Before Phase 2 polish**: confirm if any fields beyond the six in the plan (name, email,
   phone, business name, business type, grant amount) should be on the application form.

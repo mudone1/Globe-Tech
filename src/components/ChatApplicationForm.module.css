@@ -424,6 +424,49 @@ textarea.field {
   color: var(--text);
 }
 
+.warningBox {
+  margin: 0 0 14px;
+  padding: 14px 16px;
+  border: 1px solid rgba(179, 57, 44, 0.4);
+  background: rgba(179, 57, 44, 0.12);
+  border-radius: 10px;
+  color: #f3c9c2;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+.warningBox b {
+  color: #ff9f8f;
+}
+
+.statusCard {
+  padding: 18px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 14px;
+  text-align: center;
+}
+.statusCard .statusLabel {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--gold);
+  margin: 0 0 8px;
+}
+.statusCard h2 {
+  font-family: "Fraunces", serif;
+  font-weight: 500;
+  font-size: 20px;
+  margin: 0 0 10px;
+  color: var(--text);
+}
+.statusCard p {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+
 .categoryGrid {
   display: flex;
   flex-direction: column;

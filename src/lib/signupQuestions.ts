@@ -35,7 +35,7 @@ const TAIL: SignupQuestion[] = [
     id: "idCard",
     type: "file",
     label: "ID card",
-    question: "Last thing before the paperwork — upload a clear photo or scan of your NIN or Voter's card.",
+    question: "Last thing before the paperwork — upload a clear photo or scan of your NIN.",
   },
   {
     id: "mouAccepted",

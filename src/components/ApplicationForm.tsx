@@ -32,6 +32,15 @@ interface Props {
   referralResolved: boolean;
 }
 
+interface SavedDraft {
+  categoryId: GrantCategoryId;
+  answers: Answers;
+  qIndex: number;
+  transcript: TranscriptItem[];
+  stage: Stage;
+  savedAt: number;
+}
+
 export default function ApplicationForm({ token }: Props) {
   const [stage, setStage] = useState<Stage>("category");
   const [categoryId, setCategoryId] = useState<GrantCategoryId | null>(null);
@@ -44,13 +53,48 @@ export default function ApplicationForm({ token }: Props) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [grantCode, setGrantCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState<SavedDraft | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const draftKey = `gt_application_draft_${token}`;
 
   useEffect(() => {
     recordVisit(token).catch(() => {
       /* non-fatal — the token in the URL still works at submit time */
     });
   }, [token]);
+
+  // Look for a saved draft on this device so the applicant can pick up where
+  // they left off, even after closing the tab or reloading.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      if (raw) {
+        const parsed: SavedDraft = JSON.parse(raw);
+        if (parsed && parsed.categoryId && parsed.transcript?.length > 0 && parsed.stage !== "done") {
+          setDraft(parsed);
+        }
+      }
+    } catch {
+      /* corrupt or unavailable storage — just start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave on every change. Nothing to persist before a category's picked;
+  // clear the draft entirely once actually submitted.
+  useEffect(() => {
+    if (stage === "category" && !categoryId) return;
+    try {
+      if (stage === "done") {
+        window.localStorage.removeItem(draftKey);
+      } else if (categoryId) {
+        const payload: SavedDraft = { categoryId, answers, qIndex, transcript, stage, savedAt: Date.now() };
+        window.localStorage.setItem(draftKey, JSON.stringify(payload));
+      }
+    } catch {
+      /* localStorage may be unavailable — the session still works, it just won't resume after reload */
+    }
+  }, [categoryId, answers, qIndex, transcript, stage, draftKey]);
 
   useEffect(() => {
     requestAnimationFrame(() => {
@@ -59,6 +103,28 @@ export default function ApplicationForm({ token }: Props) {
   }, [transcript, typing, qIndex, stage]);
 
   const category = categoryId ? GRANT_CATEGORIES.find((c) => c.id === categoryId)! : null;
+
+  function resumeDraft() {
+    if (!draft) return;
+    const cat = GRANT_CATEGORIES.find((c) => c.id === draft.categoryId);
+    if (!cat) return;
+    setCategoryId(draft.categoryId);
+    setQuestions(getGrantQuestions(cat.tier));
+    setAnswers(draft.answers);
+    setQIndex(draft.qIndex);
+    setTranscript(draft.transcript);
+    setStage(draft.stage);
+    setDraft(null);
+  }
+
+  function startFresh() {
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    setDraft(null);
+  }
 
   function selectCategory(id: GrantCategoryId, tier: GrantTier) {
     const qs = getGrantQuestions(tier);
@@ -206,7 +272,14 @@ export default function ApplicationForm({ token }: Props) {
         </div>
 
         <div className={styles.thread}>
-          {stage === "category" && (
+          {stage === "category" && draft && (
+            <div className={styles.welcomeHero}>
+              <h1>Welcome back — we can continue from where you stopped.</h1>
+              <p>Your progress on this device was saved automatically.</p>
+            </div>
+          )}
+
+          {stage === "category" && !draft && (
             <>
               <div className={styles.welcomeHero}>
                 <h1>Which grant fits your business?</h1>
@@ -321,6 +394,19 @@ export default function ApplicationForm({ token }: Props) {
         </div>
 
         <div className={styles.composer}>
+          {stage === "category" && draft && (
+            <div className={styles.composerInner}>
+              <div className={styles.rowActions}>
+                <button className={`${styles.btn} ${styles.btnGhost}`} onClick={startFresh}>
+                  Start over
+                </button>
+                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={resumeDraft}>
+                  Continue →
+                </button>
+              </div>
+            </div>
+          )}
+
           {stage === "questions" && !typing && questions[qIndex] && (
             <Composer key={qIndex} q={questions[qIndex]!} onAnswer={submitAnswer} />
           )}

@@ -38,12 +38,22 @@ service cloud.firestore {
     // account is created, or by an admins-only allowlist if you'd rather
     // keep the dashboard admin-only for now).
     match /applications/{applicationId} {
-      allow read: if isAdmin() ||
-        (isSignedIn() && resource.data.referredBy == request.auth.token.staffId);
-      // The "Mark Phase 2 complete" toggle is the one client-side write we allow,
-      // and only admins may perform it, and only to flip the status field.
+      // Admin-only. Staff (Regional/State/Marketing) never read this collection
+      // directly — their dashboard goes through getMyDashboardData, a server
+      // action that returns a curated shape excluding bank account details
+      // (bankAccountNumber/bankAccountName/phase2AdminNote), only the coarse
+      // phase2VerificationStatus. Applicants reach their own record only via
+      // the account-details continuation page's server actions, never
+      // client-side Firestore reads.
+      allow read: if isAdmin();
+      // Admins can flip the status field (legacy manual toggle) and the Phase 2
+      // verification fields (manual override, e.g. confirming "invalid_account").
+      // Applicant-submitted fields (name, business info, bank details) are never
+      // client-writable — those only ever change via the server actions.
       allow update: if isAdmin() &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(["status"]);
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ["status", "phase2VerificationStatus", "phase2VerifiedAt", "phase2VerifiedBatchId", "phase2AdminNote"]
+        );
       allow create: if false; // applications are created server-side only (see actions.ts)
       allow delete: if false;
     }
@@ -69,6 +79,18 @@ service cloud.firestore {
     match /staffSetupTokens/{token} {
       allow read: if false;
       allow write: if false;
+    }
+
+    // bankValidationBatches — FirstBank account-validation uploads, used to
+    // auto-verify Phase 2. Contains real account numbers/names, so this is
+    // strictly admin-only — Regional/State/Marketing staff must never read
+    // this collection, only the coarse phase2VerificationStatus on
+    // individual applications (already covered by the applications rule
+    // above, which only exposes referredBy-scoped fields via server actions,
+    // not this collection directly).
+    match /bankValidationBatches/{batchId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
     }
 
     // payoutSettings — the ₦-per-completed-Phase-2 commission rate, editable

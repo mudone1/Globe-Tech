@@ -1,7 +1,7 @@
 "use server";
 
 import { registerNewStaff, type RegisterNewStaffInput, type RegisterNewStaffResult } from "@/lib/selfRegistration";
-import { uploadIdCardToDrive } from "@/lib/googleDrive";
+import { uploadIdCardToDrive, describeDriveUploadError } from "@/lib/googleDrive";
 
 export async function submitStaffRegistration(input: RegisterNewStaffInput): Promise<RegisterNewStaffResult> {
   return registerNewStaff(input);
@@ -26,6 +26,6 @@ export async function uploadIdCard(formData: FormData): Promise<UploadIdCardResu
     return { ok: true, url: result.webViewLink, fileName: file.name };
   } catch (err) {
     console.error("uploadIdCard failed:", err);
-    return { ok: false, error: "Couldn't upload your file right now. Please try again." };
+    return { ok: false, error: describeDriveUploadError(err) };
   }
 }
