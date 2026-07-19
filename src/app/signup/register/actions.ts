@@ -1,7 +1,7 @@
 "use server";
 
 import { registerNewStaff, type RegisterNewStaffInput, type RegisterNewStaffResult } from "@/lib/selfRegistration";
-import { uploadIdCardToDrive, describeDriveUploadError } from "@/lib/googleDrive";
+import { uploadIdCardToStorage, describeStorageUploadError } from "@/lib/firebaseStorage";
 
 export async function submitStaffRegistration(input: RegisterNewStaffInput): Promise<RegisterNewStaffResult> {
   return registerNewStaff(input);
@@ -22,10 +22,10 @@ export async function uploadIdCard(formData: FormData): Promise<UploadIdCardResu
 
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
-    const result = await uploadIdCardToDrive(buffer, file.name, file.type);
-    return { ok: true, url: result.webViewLink, fileName: file.name };
+    const result = await uploadIdCardToStorage(buffer, file.name, file.type);
+    return { ok: true, url: result.url, fileName: file.name };
   } catch (err) {
     console.error("uploadIdCard failed:", err);
-    return { ok: false, error: describeDriveUploadError(err) };
+    return { ok: false, error: describeStorageUploadError(err) };
   }
 }

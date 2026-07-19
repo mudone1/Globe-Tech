@@ -447,6 +447,7 @@ function Composer({
   const [uploading, setUploading] = useState(false);
   const [uploaded, setUploaded] = useState<{ url: string; fileName: string } | null>(null);
   const [declarationChecked, setDeclarationChecked] = useState(false);
+  const [multiSelected, setMultiSelected] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement & HTMLSelectElement>(null);
 
   useEffect(() => {
@@ -538,6 +539,43 @@ function Composer({
           </button>
         </div>
         {error && <p className={styles.errorText}>{error}</p>}
+      </div>
+    );
+  }
+
+  if (q.type === "multiselect") {
+    const min = q.minSelect ?? 1;
+    const enough = multiSelected.length >= min;
+    return (
+      <div className={styles.composerInner}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, maxHeight: 280, overflowY: "auto" }}>
+          {(q.options ?? []).map((o) => (
+            <label key={o} className={styles.checkline}>
+              <input
+                type="checkbox"
+                checked={multiSelected.includes(o)}
+                onChange={(e) => {
+                  setMultiSelected(e.target.checked ? [...multiSelected, o] : multiSelected.filter((s) => s !== o));
+                }}
+              />
+              <span>{o}</span>
+            </label>
+          ))}
+        </div>
+        <div className={styles.rowActions}>
+          <button
+            className={`${styles.btn} ${styles.btnPrimary}`}
+            disabled={!enough}
+            onClick={() => onAnswer(q.id, multiSelected.join(", "), multiSelected.join(", "))}
+          >
+            Continue →
+          </button>
+        </div>
+        {!enough && (
+          <p className={styles.hint}>
+            Select at least {min} state{min === 1 ? "" : "s"} to continue ({multiSelected.length} selected).
+          </p>
+        )}
       </div>
     );
   }

@@ -84,27 +84,29 @@ tiers are active immediately once their referrer code checks out. The sheet sync
 works and can be used in parallel for reporting/bulk import — it's no longer the only way in.
 
 The signup flow (`src/components/SignupChatForm.tsx`) collects each role's onboarding-form
-fields — including an NIN/Voter's card upload — and uploads that file to a shared Google Drive
-folder, reusing the **same service account** from the Sheets sync above (no separate Google
-Cloud project needed).
+fields — including an NIN/Voter's card upload — and uploads that file to **Firebase Storage**
+(`src/lib/firebaseStorage.ts`), reusing the same `FIREBASE_SERVICE_ACCOUNT_KEY` already set up
+for Firestore/Auth above (no separate Google Cloud project or Drive setup needed).
 
-**To wire it up (after the Sheets setup above is already done):**
+> This used to upload to Google Drive via the Sheets service account, but service accounts get
+> zero storage quota on a personal (non-Workspace) Google Drive — uploads failed with "Service
+> Accounts do not have storage quota" even with Editor access on the folder. Shared Drives, which
+> would fix that, are a Google Workspace-only feature. Firebase Storage avoids the issue entirely.
 
-1. In Google Cloud Console → APIs & Services → Library, enable the **Google Drive API** (same
-   project as the Sheets API).
-2. Create a Drive folder for ID card uploads, and share it with the same service account
-   email (`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`) as **Editor**.
-3. Add one more environment variable (locally and in Vercel):
-   ```
-   GOOGLE_DRIVE_ID_CARDS_FOLDER_ID=   (the long ID from the folder's URL)
-   ```
-4. Redeploy.
+**To wire it up:**
 
-Uploaded files are set to "anyone with the link can view" so admins can open them straight from
-the pending-approval list on `/admin/staff` without being individually added to the folder — the
-link itself is never shown outside that authenticated admin page. If you'd rather lock this down
-further (e.g. only specific admin accounts, via a Google Shared Drive), that's a follow-up worth
-doing once you've confirmed the basic flow works.
+1. In the Firebase console, enable **Storage** for this project if you haven't already
+   (Build → Storage → Get started).
+2. Make sure `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET` (already set from the client config above) and
+   `FIREBASE_SERVICE_ACCOUNT_KEY` (already set from the Admin section above) are both present
+   locally and in Vercel — no new environment variables are needed.
+3. Redeploy.
+
+Uploaded files are made public-read so admins can open them straight from the pending-approval
+list on `/admin/staff` without extra auth plumbing — the link itself is never shown outside that
+authenticated admin page. If you'd rather lock this down further (e.g. signed URLs with an
+expiry instead of public-read), that's a follow-up worth doing once you've confirmed the basic
+flow works.
 
 ## 4. Grant Code email (sent immediately after every application)
 

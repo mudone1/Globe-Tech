@@ -1,7 +1,7 @@
 import { NIGERIA_STATES } from "@/lib/nigeriaStates";
 import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
 
-export type SQType = "text" | "email" | "tel" | "select" | "quickreply" | "textarea" | "file" | "mou" | "checkbox";
+export type SQType = "text" | "email" | "tel" | "select" | "multiselect" | "quickreply" | "textarea" | "file" | "mou" | "checkbox";
 
 export interface SignupQuestion {
   id: string;
@@ -11,6 +11,7 @@ export interface SignupQuestion {
   placeholder?: string;
   options?: string[];
   required?: boolean; // defaults to true
+  minSelect?: number; // multiselect only — minimum options that must be checked
 }
 
 export const MOU_ITEMS = [
@@ -115,10 +116,11 @@ export function getSignupQuestions(role: SignupRole): SignupQuestion[] {
   if (role === "regional") {
     middle.push({
       id: "stateOfInfluence",
-      type: "select",
-      label: "State of influence",
-      question: "And which state is your primary state of influence?",
+      type: "multiselect",
+      label: "States of influence",
+      question: "And select your states of influences",
       options: NIGERIA_STATES,
+      minSelect: 2,
     });
   }
 
