@@ -26,11 +26,20 @@ export interface DashboardApplicant {
   statusLabel: string;
 }
 
+export interface DashboardTeamStats {
+  totalSubmissions: number;
+  totalCompleted: number;
+  conversionRate: number;
+}
+
 export interface DashboardData {
   ok: true;
   self: DashboardMember;
   downline: DashboardMember[];
   applicants: DashboardApplicant[];
+  teamStats: DashboardTeamStats;
+  timeSeries: { date: string; count: number }[];
+  categoryBreakdown: { name: string; count: number }[];
 }
 
 export interface DashboardError {
@@ -48,6 +57,39 @@ function toMember(staff: StaffRecord, stats: StaffStats | undefined, linksHidden
     completed: stats?.completed ?? 0,
     conversionRate: stats?.conversionRate ?? 0,
   };
+}
+
+function buildTeamStats(applicantSummaries: ApplicantSummary[]): DashboardTeamStats {
+  const totalSubmissions = applicantSummaries.length;
+  const totalCompleted = applicantSummaries.filter((a) => a.status === "phase2_marked_complete").length;
+  return {
+    totalSubmissions,
+    totalCompleted,
+    conversionRate: totalSubmissions ? Math.round((totalCompleted / totalSubmissions) * 100) : 0,
+  };
+}
+
+function buildTimeSeries(applicantSummaries: ApplicantSummary[]): { date: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const a of applicantSummaries) {
+    if (!a.createdAt) continue;
+    const day = a.createdAt.slice(0, 10);
+    counts.set(day, (counts.get(day) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([date, count]) => ({ date: date.slice(5), count }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildCategoryBreakdown(applicantSummaries: ApplicantSummary[]): { name: string; count: number }[] {
+  const counts = new Map<string, number>();
+  for (const a of applicantSummaries) {
+    if (!a.grantCategoryName) continue;
+    counts.set(a.grantCategoryName, (counts.get(a.grantCategoryName) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
 }
 
 function statusLabelFor(a: ApplicantSummary): string {
@@ -85,5 +127,8 @@ export async function getMyDashboardData(idToken: string): Promise<DashboardData
         statusLabel: statusLabelFor(a),
       }))
       .sort((a, b) => a.applicantName.localeCompare(b.applicantName)),
+    teamStats: buildTeamStats(applicantSummaries),
+    timeSeries: buildTimeSeries(applicantSummaries),
+    categoryBreakdown: buildCategoryBreakdown(applicantSummaries),
   };
 }

@@ -161,7 +161,8 @@ function ApplicationsBrowser() {
       </div>
 
       <div className="overflow-hidden rounded-card border border-line bg-white">
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
             <tr>
               <th className="px-4 py-3">Applicant</th>
@@ -251,6 +252,7 @@ function ApplicationsBrowser() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
 
       {apps && filtered.length > PAGE_SIZE && (

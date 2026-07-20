@@ -44,6 +44,7 @@ export interface ApplicantSummary {
   status: string;
   phase2VerificationStatus?: string;
   phase2Unlocked: boolean;
+  createdAt: string;
 }
 
 /**
@@ -77,6 +78,7 @@ export async function getApplicantSummariesForStaffIds(staffIds: string[]): Prom
         status: app.status,
         phase2VerificationStatus: app.phase2VerificationStatus,
         phase2Unlocked: isPhase2Unlocked(app.phase1SubmittedAt),
+        createdAt: app.createdAt,
       });
     });
   }

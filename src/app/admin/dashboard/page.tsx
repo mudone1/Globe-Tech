@@ -2,40 +2,21 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { collection, getDocs, doc, getDoc } from "firebase/firestore";
-import {
-  ResponsiveContainer,
-  AreaChart,
-  Area,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  PieChart,
-  Pie,
-  Cell,
-} from "recharts";
-import { FileText, Wallet, CheckCircle2, TrendingUp, Download, type LucideIcon } from "lucide-react";
+import { FileText, Wallet, CheckCircle2, TrendingUp, Download } from "lucide-react";
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
-import CountUp from "@/components/CountUp";
 import Skeleton from "@/components/Skeleton";
+import { KpiCard, KPI_GRADIENTS } from "@/components/dashboard/KpiCard";
+import { BarBreakdown, type Count } from "@/components/dashboard/BarBreakdown";
+import { DonutLegendCard } from "@/components/dashboard/DonutLegendCard";
+import { TimeSeriesAreaCard } from "@/components/dashboard/TimeSeriesAreaCard";
 import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
 import { getGrantCategory } from "@/lib/grantCategories";
+import { initials } from "@/lib/initials";
 import type { ApplicationRecord, StaffRecord, VisitRecord, PayoutSettingsRecord } from "@/lib/types";
 
 const CANONICAL_TIERS = ROLE_ORDER.map((r) => ROLE_CONFIGS[r].tier);
-
-const CHART_COLORS = ["#0E7A3A", "#C8952A", "#2BB894", "#D98A4C", "#054A26", "#7FA688", "#B3392C", "#4B5B52"];
-
-const KPI_GRADIENTS = [
-  "linear-gradient(135deg, #17B25C 0%, #075C31 100%)", // emerald
-  "linear-gradient(135deg, #EBBD52 0%, #B3791E 100%)", // gold
-  "linear-gradient(135deg, #2FC7A3 0%, #0E6B54 100%)", // teal
-  "linear-gradient(135deg, #E0965A 0%, #954E1F 100%)", // bronze/terracotta
-];
 
 export default function DashboardPage() {
   return (
@@ -47,11 +28,6 @@ export default function DashboardPage() {
   );
 }
 
-interface Count {
-  name: string;
-  count: number;
-}
-
 function countBy(apps: ApplicationRecord[], key: keyof ApplicationRecord): Count[] {
   const counts = new Map<string, number>();
   for (const a of apps) {
@@ -61,13 +37,6 @@ function countBy(apps: ApplicationRecord[], key: keyof ApplicationRecord): Count
   return Array.from(counts.entries())
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count);
-}
-
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
-  return (parts[0]![0]! + parts[parts.length - 1]![0]!).toUpperCase();
 }
 
 function Dashboard() {
@@ -311,42 +280,8 @@ function Dashboard() {
       )}
 
       <div className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-3">
-        <div className="card-rise lift-hover rounded-2xl border border-line bg-white p-6 shadow-sm xl:col-span-2" style={{ "--delay": "280ms" } as CSSProperties}>
-          <h2 className="mb-4 font-display text-base font-semibold text-ink">Applications over time</h2>
-          {timeSeries.length > 0 ? (
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart data={timeSeries}>
-                <defs>
-                  <linearGradient id="appFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#17B25C" stopOpacity={0.45} />
-                    <stop offset="60%" stopColor="#17B25C" stopOpacity={0.12} />
-                    <stop offset="100%" stopColor="#17B25C" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="appStroke" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#0E7A3A" />
-                    <stop offset="100%" stopColor="#C8952A" />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#DCE6DE" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#4B5B52" }} axisLine={false} tickLine={false} />
-                <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#4B5B52" }} axisLine={false} tickLine={false} width={28} />
-                <Tooltip />
-                <Area
-                  type="monotone"
-                  dataKey="count"
-                  name="Applications"
-                  stroke="url(#appStroke)"
-                  strokeWidth={3}
-                  fill="url(#appFill)"
-                  isAnimationActive
-                  animationDuration={1100}
-                  animationEasing="ease-out"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
-          ) : (
-            <p className="py-10 text-center text-sm text-slate">No applications yet.</p>
-          )}
+        <div className="xl:col-span-2" style={{ "--delay": "280ms" } as CSSProperties}>
+          <TimeSeriesAreaCard title="Applications over time" data={timeSeries} />
         </div>
 
         <div className="card-rise lift-hover" style={{ "--delay": "340ms" } as CSSProperties}>
@@ -456,135 +391,6 @@ function Dashboard() {
             </div>
           </div>
         </section>
-      )}
-    </div>
-  );
-}
-
-function KpiCard({
-  icon: Icon,
-  gradient,
-  label,
-  prefix = "",
-  numericValue,
-  suffix = "",
-  sub,
-  index = 0,
-}: {
-  icon: LucideIcon;
-  gradient: string;
-  label: string;
-  prefix?: string;
-  numericValue: number;
-  suffix?: string;
-  sub?: string;
-  index?: number;
-}) {
-  return (
-    <div
-      className="card-rise lift-hover relative overflow-hidden rounded-2xl p-5 shadow-lg"
-      style={{ "--delay": `${index * 70}ms`, background: gradient } as CSSProperties}
-    >
-      {/* Soft light-source glow, top-left — echoes the reference's vivid gradient cards */}
-      <div
-        className="pointer-events-none absolute -left-6 -top-10 h-32 w-32 rounded-full opacity-40"
-        style={{ background: "radial-gradient(circle, rgba(255,255,255,0.55), transparent 70%)" }}
-      />
-      <div
-        className="pop-in relative flex h-10 w-10 items-center justify-center rounded-xl bg-white/20 backdrop-blur-sm"
-        style={{ "--delay": `${index * 70 + 120}ms` } as CSSProperties}
-      >
-        <Icon size={18} className="text-white" strokeWidth={2.25} />
-      </div>
-      <p className="relative mt-4 font-display text-2xl font-semibold text-white">
-        {prefix}
-        <CountUp value={numericValue} />
-        {suffix}
-      </p>
-      <p className="relative mt-0.5 text-sm text-white/80">{label}</p>
-      {sub && <p className="relative mt-1.5 text-xs text-white/60">{sub}</p>}
-    </div>
-  );
-}
-
-function BarBreakdown({ title, data }: { title: string; data: Count[] }) {
-  return (
-    <div className="rounded-2xl border border-line bg-white p-6 shadow-sm">
-      <h3 className="mb-3 font-display text-base font-semibold text-ink">{title}</h3>
-      {data.length === 0 ? (
-        <p className="text-sm text-slate">No data yet.</p>
-      ) : (
-        <ResponsiveContainer width="100%" height={Math.max(160, data.length * 34)}>
-          <BarChart data={data} layout="vertical" margin={{ left: 8, right: 16 }}>
-            <defs>
-              <linearGradient id="barFill" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#0E7A3A" />
-                <stop offset="100%" stopColor="#2FC7A3" />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#DCE6DE" horizontal={false} />
-            <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#4B5B52" }} axisLine={false} tickLine={false} />
-            <YAxis
-              type="category"
-              dataKey="name"
-              width={150}
-              tick={{ fontSize: 11, fill: "#0B2A18" }}
-              axisLine={false}
-              tickLine={false}
-              tickFormatter={(v: string) => (v.length > 22 ? `${v.slice(0, 22)}…` : v)}
-            />
-            <Tooltip />
-            <Bar dataKey="count" name="Applications" fill="url(#barFill)" radius={[0, 4, 4, 0]} isAnimationActive animationDuration={900} animationEasing="ease-out" />
-          </BarChart>
-        </ResponsiveContainer>
-      )}
-    </div>
-  );
-}
-
-function DonutLegendCard({ title, data }: { title: string; data: Count[] }) {
-  const total = data.reduce((sum, d) => sum + d.count, 0);
-  return (
-    <div className="rounded-2xl border border-line bg-white p-6 shadow-sm">
-      <h2 className="font-display text-base font-semibold text-ink">{title}</h2>
-      <p className="mb-2 text-xs text-slate">{total ? `${total} response${total === 1 ? "" : "s"}` : "No data yet"}</p>
-      {data.length === 0 ? (
-        <p className="py-10 text-center text-sm text-slate">No data yet.</p>
-      ) : (
-        <>
-          <ResponsiveContainer width="100%" height={180}>
-            <PieChart>
-              <Pie
-                data={data}
-                dataKey="count"
-                nameKey="name"
-                innerRadius={54}
-                outerRadius={78}
-                paddingAngle={3}
-                stroke="none"
-                isAnimationActive
-                animationDuration={900}
-                animationEasing="ease-out"
-              >
-                {data.map((_, i) => (
-                  <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
-          <ul className="mt-3 space-y-2">
-            {data.map((d, i) => (
-              <li key={d.name} className="flex items-center justify-between gap-3 text-sm">
-                <span className="flex min-w-0 items-center gap-2 text-ink">
-                  <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
-                  <span className="truncate">{d.name}</span>
-                </span>
-                <span className="shrink-0 text-slate">{total ? Math.round((d.count / total) * 100) : 0}%</span>
-              </li>
-            ))}
-          </ul>
-        </>
       )}
     </div>
   );
