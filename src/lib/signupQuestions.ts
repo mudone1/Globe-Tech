@@ -1,7 +1,7 @@
 import { NIGERIA_STATES } from "@/lib/nigeriaStates";
 import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
 
-export type SQType = "text" | "email" | "tel" | "select" | "multiselect" | "quickreply" | "textarea" | "file" | "mou" | "checkbox";
+export type SQType = "text" | "email" | "tel" | "select" | "multiselect" | "quickreply" | "textarea" | "mou" | "checkbox";
 
 export interface SignupQuestion {
   id: string;
@@ -33,10 +33,11 @@ export const REGIONAL_SPECIALIZATIONS = ["Globe-Tech Regional Marketing Lead", "
 
 const TAIL: SignupQuestion[] = [
   {
-    id: "idCard",
-    type: "file",
-    label: "ID card",
-    question: "Last thing before the paperwork — upload a clear photo or scan of your NIN.",
+    id: "ninNumber",
+    type: "tel",
+    label: "NIN",
+    question: "Last thing before the paperwork — what's your National Identification Number (NIN)?",
+    placeholder: "12345678901",
   },
   {
     id: "mouAccepted",

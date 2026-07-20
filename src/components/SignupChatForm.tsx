@@ -5,10 +5,10 @@ import Link from "next/link";
 import Image from "next/image";
 import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
 import { getSignupQuestions, MOU_ITEMS, DECLARATION_TEXT, type SignupQuestion } from "@/lib/signupQuestions";
-import { submitStaffRegistration, uploadIdCard } from "@/app/signup/register/actions";
+import { submitStaffRegistration } from "@/app/signup/register/actions";
 import styles from "@/components/ChatApplicationForm.module.css";
 
-type FieldValue = string | { url: string; fileName: string } | null;
+type FieldValue = string | null;
 type Answers = Record<string, FieldValue>;
 
 interface TranscriptItem {
@@ -164,7 +164,6 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
   async function finalSubmit() {
     setStage("submitting");
     setSubmitError(null);
-    const idCard = answers.idCard as { url: string; fileName: string } | null;
     const res = await submitStaffRegistration({
       role,
       fullName: [answers.firstName, answers.middleName, answers.lastName]
@@ -177,8 +176,7 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
       homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
       socialMediaPlatform: typeof answers.socialMediaPlatform === "string" ? answers.socialMediaPlatform : undefined,
       socialMediaUsername: typeof answers.socialMediaUsername === "string" ? answers.socialMediaUsername : undefined,
-      idCardUrl: idCard?.url,
-      idCardFileName: idCard?.fileName,
+      ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : undefined,
       mouAccepted: mouChecked.every(Boolean),
       declarationAccepted: answers.declarationAccepted === "accepted",
       referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
@@ -310,11 +308,7 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
                   .map((q) => (
                     <div key={q.id} className={styles.sumRow}>
                       <div className={styles.sumK}>{q.label}</div>
-                      <div className={styles.sumV}>
-                        {q.id === "idCard"
-                          ? (answers.idCard as { fileName: string } | null)?.fileName ?? "—"
-                          : (answers[q.id] as string) || "—"}
-                      </div>
+                      <div className={styles.sumV}>{(answers[q.id] as string) || "—"}</div>
                     </div>
                   ))}
                 <div className={styles.sumRow}>
@@ -444,8 +438,6 @@ function Composer({
   const isRequired = required(q);
   const [value, setValue] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploaded, setUploaded] = useState<{ url: string; fileName: string } | null>(null);
   const [declarationChecked, setDeclarationChecked] = useState(false);
   const [multiSelected, setMultiSelected] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement & HTMLSelectElement>(null);
@@ -473,22 +465,6 @@ function Composer({
 
   function skip() {
     onAnswer(q.id, null, "—");
-  }
-
-  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setError(null);
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", file);
-    const res = await uploadIdCard(formData);
-    setUploading(false);
-    if (!res.ok) {
-      setError(res.error);
-      return;
-    }
-    setUploaded({ url: res.url, fileName: res.fileName });
   }
 
   function handleKeyDown(e: KeyboardEvent) {
@@ -576,42 +552,6 @@ function Composer({
             Select at least {min} state{min === 1 ? "" : "s"} to continue ({multiSelected.length} selected).
           </p>
         )}
-      </div>
-    );
-  }
-
-  if (q.type === "file") {
-    return (
-      <div className={styles.composerInner}>
-        {!uploaded ? (
-          <label className={styles.fileDrop}>
-            <input type="file" accept="image/jpeg,image/png,image/webp,application/pdf" onChange={handleFileChange} />
-            <span style={{ color: "var(--muted)", fontSize: 14 }}>
-              {uploading ? "Uploading…" : "📎 Tap to choose your NIN (JPG, PNG, or PDF)"}
-            </span>
-          </label>
-        ) : (
-          <div className={styles.fileName}>
-            <span>✓ {uploaded.fileName}</span>
-            <button
-              type="button"
-              onClick={() => setUploaded(null)}
-              style={{ background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13 }}
-            >
-              Replace
-            </button>
-          </div>
-        )}
-        <div className={styles.rowActions}>
-          <button
-            className={`${styles.btn} ${styles.btnPrimary}`}
-            disabled={!uploaded}
-            onClick={() => uploaded && onAnswer(q.id, uploaded, uploaded.fileName)}
-          >
-            Continue →
-          </button>
-        </div>
-        {error && <p className={styles.errorText}>{error}</p>}
       </div>
     );
   }

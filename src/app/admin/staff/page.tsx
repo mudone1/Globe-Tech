@@ -178,12 +178,10 @@ function StaffTable() {
                     </p>
                   )}
                   <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
-                    {r.idCardUrl ? (
-                      <a href={r.idCardUrl} target="_blank" rel="noopener noreferrer" className="text-brand hover:underline">
-                        View ID card ↗
-                      </a>
+                    {r.ninNumber ? (
+                      <span className="font-mono text-slate">NIN: {r.ninNumber}</span>
                     ) : (
-                      <span className="text-bad">No ID card uploaded</span>
+                      <span className="text-bad">No NIN provided</span>
                     )}
                     <span className={r.mouAccepted ? "text-brand" : "text-bad"}>
                       MOU {r.mouAccepted ? "acknowledged" : "not acknowledged"}

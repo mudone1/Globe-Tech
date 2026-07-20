@@ -1,7 +1,7 @@
 import "server-only";
 import { customAlphabet } from "nanoid";
 import { getAdminDb } from "@/lib/firebase-admin";
-import type { LinkTokenRecord } from "@/lib/types";
+import type { LinkTokenRecord, ReferralLinkSettingsRecord } from "@/lib/types";
 
 // Unambiguous alphabet — no 0/O, 1/I/l confusion — since staff will read tokens aloud.
 const tokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
@@ -81,4 +81,22 @@ export async function getOrCreateTokenForStaff(staffId: string): Promise<string>
     } satisfies LinkTokenRecord);
 
   return token;
+}
+
+/**
+ * Whether staff referral links are currently hidden on the dashboard —
+ * toggled from /admin/settings while applications are paused (e.g. awaiting
+ * bank verification training). Defaults to hidden if the settings doc has
+ * never been written, so a fresh deploy of this feature doesn't accidentally
+ * expose links before an admin has made a deliberate choice either way.
+ */
+export async function areReferralLinksHidden(): Promise<boolean> {
+  try {
+    const snap = await getAdminDb().collection("appSettings").doc("referralLinks").get();
+    if (!snap.exists) return true;
+    return (snap.data() as ReferralLinkSettingsRecord).linksHidden;
+  } catch (err) {
+    console.error("areReferralLinksHidden failed:", err);
+    return true;
+  }
 }

@@ -2,8 +2,11 @@
 
 import { verifyStaffSession } from "@/lib/staffAuth";
 import { getDownline, getStatsForStaffIds, getApplicantSummariesForStaffIds, type StaffStats, type ApplicantSummary } from "@/lib/downline";
+import { areReferralLinksHidden } from "@/lib/referral";
 import { PHASE2_STATUS_INFO } from "@/lib/phase2Status";
 import type { StaffRecord } from "@/lib/types";
+
+const LINKS_HIDDEN_MESSAGE = "Referral links are temporarily paused while we complete bank verification training — check back soon.";
 
 export interface DashboardMember {
   staffId: string;
@@ -35,12 +38,12 @@ export interface DashboardError {
   error: string;
 }
 
-function toMember(staff: StaffRecord, stats: StaffStats | undefined): DashboardMember {
+function toMember(staff: StaffRecord, stats: StaffStats | undefined, linksHidden: boolean): DashboardMember {
   return {
     staffId: staff.staffId,
     fullName: staff.fullName,
     tier: staff.tier,
-    link: stats?.link || "(link not generated yet)",
+    link: linksHidden ? LINKS_HIDDEN_MESSAGE : stats?.link || "(link not generated yet)",
     submissions: stats?.submissions ?? 0,
     completed: stats?.completed ?? 0,
     conversionRate: stats?.conversionRate ?? 0,
@@ -61,16 +64,17 @@ export async function getMyDashboardData(idToken: string): Promise<DashboardData
   const { session } = verified;
   const downlineStaff = await getDownline(session.staffId);
   const allIds = [session.staffId, ...downlineStaff.map((s) => s.staffId)];
-  const [stats, applicantSummaries] = await Promise.all([
+  const [stats, applicantSummaries, linksHidden] = await Promise.all([
     getStatsForStaffIds(allIds),
     getApplicantSummariesForStaffIds(allIds),
+    areReferralLinksHidden(),
   ]);
 
   return {
     ok: true,
-    self: toMember(session.staff, stats.get(session.staffId)),
+    self: toMember(session.staff, stats.get(session.staffId), linksHidden),
     downline: downlineStaff
-      .map((s) => toMember(s, stats.get(s.staffId)))
+      .map((s) => toMember(s, stats.get(s.staffId), linksHidden))
       .sort((a, b) => a.fullName.localeCompare(b.fullName)),
     applicants: applicantSummaries
       .map((a) => ({

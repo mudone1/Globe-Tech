@@ -1,7 +1,6 @@
 import { initializeApp, getApps, cert, App } from "firebase-admin/app";
 import { getFirestore, Firestore } from "firebase-admin/firestore";
 import { getAuth, Auth } from "firebase-admin/auth";
-import { getStorage, Storage } from "firebase-admin/storage";
 
 /**
  * Server-only Firebase Admin init. Never import this file from a
@@ -40,7 +39,6 @@ function getAdminApp(): App {
 
 let dbInstance: Firestore | undefined;
 let authInstance: Auth | undefined;
-let storageInstance: Storage | undefined;
 
 export function getAdminDb(): Firestore {
   if (!dbInstance) dbInstance = getFirestore(getAdminApp());
@@ -50,9 +48,4 @@ export function getAdminDb(): Firestore {
 export function getAdminAuth(): Auth {
   if (!authInstance) authInstance = getAuth(getAdminApp());
   return authInstance;
-}
-
-export function getAdminStorage(): Storage {
-  if (!storageInstance) storageInstance = getStorage(getAdminApp());
-  return storageInstance;
 }

@@ -21,8 +21,7 @@ export interface StaffRecord {
   homeAddress?: string;
   socialMediaPlatform?: string; // Facebook | Instagram | X | LinkedIn
   socialMediaUsername?: string;
-  idCardUrl?: string; // Google Drive "view" link for the uploaded NIN/Voter's card
-  idCardFileName?: string;
+  ninNumber?: string; // National Identification Number, collected during self-registration
   mouAccepted?: boolean; // all 8 MOU statements acknowledged
   declarationAccepted?: boolean;
   stateToCoordinate?: string; // State Coordinator only — the state they'll operate in
@@ -164,4 +163,15 @@ export interface PayoutRecord {
   note?: string;
   paidAt: string; // ISO timestamp
   recordedBy?: string; // admin's Firebase Auth UID
+}
+
+// Single doc (appSettings/referralLinks) controlling whether staff can see
+// their own /apply/[token] referral link on the dashboard. Toggled off while
+// grant applications are paused (e.g. awaiting bank verification training)
+// so staff can still log in but won't start sharing a link prematurely — the
+// underlying token/link itself is untouched, only its visibility.
+export interface ReferralLinkSettingsRecord {
+  linksHidden: boolean;
+  updatedAt: string;
+  updatedBy?: string; // admin's Firebase Auth UID
 }

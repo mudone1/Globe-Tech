@@ -113,5 +113,15 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if false;
     }
+
+    // appSettings — small collection of admin-editable feature toggles.
+    // Currently: appSettings/referralLinks, controlling whether staff can see
+    // their own referral link on /dashboard (see getMyDashboardData). Read by
+    // the Admin SDK server-side (bypasses these rules) and by the
+    // /admin/settings page client-side, so it needs an explicit admin rule.
+    match /appSettings/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
   }
 }
