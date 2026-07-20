@@ -41,8 +41,7 @@ export interface RegisterNewStaffInput {
   homeAddress: string;
   socialMediaPlatform?: string;
   socialMediaUsername?: string;
-  idCardUrl?: string;
-  idCardFileName?: string;
+  ninNumber?: string;
   mouAccepted: boolean;
   declarationAccepted: boolean;
   referrerCode?: string;
@@ -70,8 +69,10 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
   const state = input.state.trim();
   const homeAddress = input.homeAddress.trim();
 
-  if (!fullName || !email || !phone || !state || !homeAddress) {
-    return { ok: false, error: "Fill in your name, email, phone, address, and state." };
+  const ninNumber = (input.ninNumber ?? "").trim();
+
+  if (!fullName || !email || !phone || !state || !homeAddress || !ninNumber) {
+    return { ok: false, error: "Fill in your name, email, phone, address, state, and NIN." };
   }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return { ok: false, error: "Enter a valid email address." };
@@ -138,8 +139,7 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
     ...(input.middleName?.trim() ? { middleName: input.middleName.trim() } : {}),
     ...(input.socialMediaPlatform?.trim() ? { socialMediaPlatform: input.socialMediaPlatform.trim() } : {}),
     ...(input.socialMediaUsername?.trim() ? { socialMediaUsername: input.socialMediaUsername.trim() } : {}),
-    ...(input.idCardUrl ? { idCardUrl: input.idCardUrl } : {}),
-    ...(input.idCardFileName ? { idCardFileName: input.idCardFileName } : {}),
+    ninNumber,
     ...(input.stateToCoordinate?.trim() ? { stateToCoordinate: input.stateToCoordinate.trim() } : {}),
     ...(input.roleSpecialization?.trim() ? { roleSpecialization: input.roleSpecialization.trim() } : {}),
     ...(input.stateOfInfluence?.trim() ? { stateOfInfluence: input.stateOfInfluence.trim() } : {}),

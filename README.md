@@ -74,7 +74,7 @@ The original Firebase Cloud Functions version of this sync is still in `function
 reference, in case you upgrade to Blaze later and want automatic 15-minute syncing instead — it's
 not deployed or required for the app to work.
 
-## 3. Self-registration + Google Drive ID card uploads
+## 3. Self-registration
 
 Staff no longer have to come through the sheet first — `/signup` lets Regional Coordinators,
 State Coordinators, and Marketing Officers register directly on the site (`src/lib/selfRegistration.ts`),
@@ -84,27 +84,14 @@ tiers are active immediately once their referrer code checks out. The sheet sync
 works and can be used in parallel for reporting/bulk import — it's no longer the only way in.
 
 The signup flow (`src/components/SignupChatForm.tsx`) collects each role's onboarding-form
-fields — including an NIN/Voter's card upload — and uploads that file to a shared Google Drive
-folder, reusing the **same service account** from the Sheets sync above (no separate Google
-Cloud project needed).
+fields, including their **NIN (National Identification Number)** as a plain 11-digit text field —
+no document upload or file storage involved. It's stored on the staff record as `ninNumber` and
+shown to admins on the `/admin/staff` pending-approval list.
 
-**To wire it up (after the Sheets setup above is already done):**
-
-1. In Google Cloud Console → APIs & Services → Library, enable the **Google Drive API** (same
-   project as the Sheets API).
-2. Create a Drive folder for ID card uploads, and share it with the same service account
-   email (`GOOGLE_SHEETS_SERVICE_ACCOUNT_EMAIL`) as **Editor**.
-3. Add one more environment variable (locally and in Vercel):
-   ```
-   GOOGLE_DRIVE_ID_CARDS_FOLDER_ID=   (the long ID from the folder's URL)
-   ```
-4. Redeploy.
-
-Uploaded files are set to "anyone with the link can view" so admins can open them straight from
-the pending-approval list on `/admin/staff` without being individually added to the folder — the
-link itself is never shown outside that authenticated admin page. If you'd rather lock this down
-further (e.g. only specific admin accounts, via a Google Shared Drive), that's a follow-up worth
-doing once you've confirmed the basic flow works.
+> An earlier version of this collected a photo/scan upload of the NIN card instead (first via
+> Google Drive, then Firebase Storage, after Drive uploads failed — service accounts get zero
+> storage quota on a personal, non-Workspace Google Drive). That upload step was dropped in favor
+> of just asking for the NIN number directly, which needs no file storage setup at all.
 
 ## 4. Grant Code email (sent immediately after every application)
 
@@ -168,7 +155,28 @@ firebase deploy --only firestore:rules
 ```
 Skipping this will show "Access denied" on both new pages even though everything else works fine.
 
-## 6. Phase 2 — FirstBank account verification
+## 6. Pausing staff referral links
+
+`/admin/settings` has a **Staff referral links** toggle (Hidden / Visible), backed by a single
+Firestore doc (`appSettings/referralLinks`). It controls whether staff see their own `/apply/[token]`
+link on `/dashboard`:
+
+- **Hidden** (the default if the doc has never been written — see `areReferralLinksHidden()` in
+  `src/lib/referral.ts`): staff can still log in and reset their password as normal, but the
+  "Your referral link" section on their dashboard shows a "temporarily paused" message instead of
+  the real link. The underlying token/link is untouched — nothing is deleted or regenerated, it's
+  purely a display toggle, so flipping it back to Visible instantly restores every staff member's
+  original link with no other changes needed.
+- **Visible**: the real link shows again, exactly as before this feature existed.
+
+Useful for a window where you don't want staff actively sharing their link and generating new
+applications (e.g. waiting on bank verification training) without having to lock anyone out of
+their account entirely.
+
+**Important:** this adds a new Firestore collection (`appSettings`) — redeploy rules if you've
+already deployed them before (`firebase deploy --only firestore:rules`), same as step 5 above.
+
+## 7. Phase 2 — FirstBank account verification
 
 No external setup needed here — it's all Firestore + the app, but it's a real workflow worth
 understanding before you use it:
@@ -201,7 +209,7 @@ understanding before you use it:
    (`Manually mark complete` / `Mark invalid account`) for edge cases the upload data doesn't
    capture.
 
-## 7. What's intentionally not automated
+## 8. What's intentionally not automated
 
 Per the build plan, FirstBank's onboarding form is outside anything this project can script.
 Phase 4 is a manual hand-off: the referral code is shown in large text on the confirmation screen
@@ -209,7 +217,7 @@ and in the Phase-2 email, with plain instructions for where to paste it. There's
 FirstBank's form — an admin marks "Phase 2 complete" by hand once they confirm the applicant has
 opened the account.
 
-## 8. What to send back before the next phase
+## 9. What to send back before the next phase
 
 - **Before Phase 2 polish**: confirm if any fields beyond the six in the plan (name, email,
   phone, business name, business type, grant amount) should be on the application form.

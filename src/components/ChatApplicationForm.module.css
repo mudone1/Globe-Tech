@@ -394,36 +394,6 @@ textarea.field {
   background: var(--teal-dim);
 }
 
-.fileDrop {
-  width: 100%;
-  border: 1.5px dashed var(--line);
-  background: var(--surface-2);
-  border-radius: 12px;
-  padding: 22px 16px;
-  text-align: center;
-  cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
-}
-.fileDrop:hover {
-  border-color: var(--teal);
-  background: var(--teal-dim);
-}
-.fileDrop input {
-  display: none;
-}
-.fileName {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  background: var(--surface-2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 14px;
-  color: var(--text);
-}
-
 .warningBox {
   margin: 0 0 14px;
   padding: 14px 16px;

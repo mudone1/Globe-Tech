@@ -1,7 +1,7 @@
 import { NIGERIA_STATES } from "@/lib/nigeriaStates";
 import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
 
-export type SQType = "text" | "email" | "tel" | "select" | "quickreply" | "textarea" | "file" | "mou" | "checkbox";
+export type SQType = "text" | "email" | "tel" | "select" | "multiselect" | "quickreply" | "textarea" | "mou" | "checkbox";
 
 export interface SignupQuestion {
   id: string;
@@ -11,6 +11,7 @@ export interface SignupQuestion {
   placeholder?: string;
   options?: string[];
   required?: boolean; // defaults to true
+  minSelect?: number; // multiselect only — minimum options that must be checked
 }
 
 export const MOU_ITEMS = [
@@ -32,10 +33,11 @@ export const REGIONAL_SPECIALIZATIONS = ["Globe-Tech Regional Marketing Lead", "
 
 const TAIL: SignupQuestion[] = [
   {
-    id: "idCard",
-    type: "file",
-    label: "ID card",
-    question: "Last thing before the paperwork — upload a clear photo or scan of your NIN.",
+    id: "ninNumber",
+    type: "tel",
+    label: "NIN",
+    question: "Last thing before the paperwork — what's your National Identification Number (NIN)?",
+    placeholder: "12345678901",
   },
   {
     id: "mouAccepted",
@@ -115,10 +117,11 @@ export function getSignupQuestions(role: SignupRole): SignupQuestion[] {
   if (role === "regional") {
     middle.push({
       id: "stateOfInfluence",
-      type: "select",
-      label: "State of influence",
-      question: "And which state is your primary state of influence?",
+      type: "multiselect",
+      label: "States of influence",
+      question: "And select your states of influences",
       options: NIGERIA_STATES,
+      minSelect: 2,
     });
   }
 
