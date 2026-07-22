@@ -65,6 +65,11 @@ function PersonalDashboard() {
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink sm:text-3xl">
             {data ? data.self.fullName : "Welcome back"}
           </h1>
+          {data && (
+            <p className="mt-1 font-mono text-xs text-slate">
+              Staff ID: <span className="font-semibold text-ink">{data.self.staffId}</span>
+            </p>
+          )}
         </div>
         <button onClick={handleSignOut} className="btn-secondary text-sm">
           Sign out
@@ -207,6 +212,53 @@ function PersonalDashboard() {
                     </div>
                   </div>
                 ))}
+              </div>
+            </section>
+          )}
+
+          {data.staffDetails.length > 0 && (
+            <section
+              className="card-rise mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm"
+              style={{ "--delay": "430ms" } as CSSProperties}
+            >
+              <div className="border-b border-line px-6 py-4">
+                <h2 className="font-display text-base font-semibold text-ink">Staff details</h2>
+                <p className="mt-1 text-sm text-slate">
+                  {data.self.tier === "Regional Coordinator"
+                    ? "Staff ID, state, phone number, and address for everyone in your reporting chain."
+                    : "Staff ID, state, phone number, and address for the Marketing Officers under you."}
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
+                    <tr>
+                      <th className="px-6 py-3">Staff</th>
+                      <th className="px-6 py-3">Staff ID</th>
+                      <th className="px-6 py-3">State</th>
+                      <th className="px-6 py-3">Phone</th>
+                      <th className="px-6 py-3">Address</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.staffDetails.map((s, i) => (
+                      <tr
+                        key={s.staffId}
+                        className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                        style={{ "--delay": `${Math.min(i, 12) * 40}ms` } as CSSProperties}
+                      >
+                        <td className="px-6 py-3">
+                          <p className="font-medium text-ink">{s.fullName}</p>
+                          <p className="text-xs text-slate">{s.tier}</p>
+                        </td>
+                        <td className="px-6 py-3 font-mono text-xs text-ink">{s.staffId}</td>
+                        <td className="px-6 py-3 text-slate">{s.state}</td>
+                        <td className="px-6 py-3 text-slate">{s.phone}</td>
+                        <td className="px-6 py-3 text-slate">{s.address}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           )}

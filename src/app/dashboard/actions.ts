@@ -18,6 +18,15 @@ export interface DashboardMember {
   conversionRate: number;
 }
 
+export interface DashboardStaffDetail {
+  staffId: string;
+  fullName: string;
+  tier: string;
+  state: string;
+  phone: string;
+  address: string;
+}
+
 export interface DashboardApplicant {
   applicationId: string;
   applicantName: string;
@@ -36,6 +45,7 @@ export interface DashboardData {
   ok: true;
   self: DashboardMember;
   downline: DashboardMember[];
+  staffDetails: DashboardStaffDetail[];
   applicants: DashboardApplicant[];
   teamStats: DashboardTeamStats;
   timeSeries: { date: string; count: number }[];
@@ -56,6 +66,25 @@ function toMember(staff: StaffRecord, stats: StaffStats | undefined, linksHidden
     submissions: stats?.submissions ?? 0,
     completed: stats?.completed ?? 0,
     conversionRate: stats?.conversionRate ?? 0,
+  };
+}
+
+// Role-scoped staff directory info for a Regional/State Coordinator's
+// downline — Staff ID, state, phone number, and home address. Never
+// includes anything beyond what the requesting staff member's own
+// downline (per getDownline) already covers, so a State Coordinator only
+// ever sees their Marketing Officers and a Regional Coordinator sees their
+// State Coordinators plus, transitively, those coordinators' Marketing
+// Officers. Marketing Officers have no downline, so this is always empty
+// for them — they only ever see their own Staff ID (in `self`).
+function toStaffDetail(staff: StaffRecord): DashboardStaffDetail {
+  return {
+    staffId: staff.staffId,
+    fullName: staff.fullName,
+    tier: staff.tier,
+    state: staff.state || "—",
+    phone: staff.phone || "—",
+    address: staff.homeAddress || "—",
   };
 }
 
@@ -117,6 +146,9 @@ export async function getMyDashboardData(idToken: string): Promise<DashboardData
     self: toMember(session.staff, stats.get(session.staffId), linksHidden),
     downline: downlineStaff
       .map((s) => toMember(s, stats.get(s.staffId), linksHidden))
+      .sort((a, b) => a.fullName.localeCompare(b.fullName)),
+    staffDetails: downlineStaff
+      .map(toStaffDetail)
       .sort((a, b) => a.fullName.localeCompare(b.fullName)),
     applicants: applicantSummaries
       .map((a) => ({
