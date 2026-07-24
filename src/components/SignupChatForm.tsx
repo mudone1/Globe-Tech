@@ -51,7 +51,7 @@ export default function SignupChatForm({ role, simplified }: { role: SignupRole;
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState<SavedDraft | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const draftKey = `gt_signup_draft_${role}`;
+  const draftKey = `gt_signup_draft_${simplified ? "simplified" : role}`;
 
   // Look for a saved draft on this device so the applicant can pick up where
   // they left off, even after closing the tab or reloading.
