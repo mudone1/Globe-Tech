@@ -16,6 +16,7 @@ export interface DashboardMember {
   submissions: number;
   completed: number;
   conversionRate: number;
+  registeredAt?: string; // ISO timestamp for new registration model
 }
 
 export interface DashboardStaffDetail {
@@ -66,6 +67,7 @@ function toMember(staff: StaffRecord, stats: StaffStats | undefined, linksHidden
     submissions: stats?.submissions ?? 0,
     completed: stats?.completed ?? 0,
     conversionRate: stats?.conversionRate ?? 0,
+    registeredAt: staff.registeredAt,
   };
 }
 

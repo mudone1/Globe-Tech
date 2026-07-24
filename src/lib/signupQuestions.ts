@@ -127,3 +127,40 @@ export function getSignupQuestions(role: SignupRole): SignupQuestion[] {
 
   return [...head, ...middle, ...TAIL];
 }
+
+/**
+ * Simplified registration questions for flat referral-based model.
+ * All new users register as Marketing Officers with optional referrer.
+ * No role selection, no role-specific fields.
+ */
+export function getSignupQuestionsSimplified(): SignupQuestion[] {
+  return [
+    { id: "firstName", type: "text", label: "First name", question: "Let's get you started — what's your first name?" },
+    { id: "lastName", type: "text", label: "Last name", question: "And your last name?" },
+    { id: "email", type: "email", label: "Email address", question: "Your email address?" },
+    { id: "phone", type: "tel", label: "Phone (WhatsApp)", question: "Your phone number (WhatsApp)?", placeholder: "08012345678" },
+    { id: "homeAddress", type: "textarea", label: "Home address", question: "Your home address?" },
+    { id: "state", type: "select", label: "State", question: "Which state do you live in?", options: NIGERIA_STATES },
+    {
+      id: "referrerCode",
+      type: "text",
+      label: "Referred by (Optional)",
+      question: "Were you referred by someone? Enter their Staff ID, or skip this.",
+      placeholder: "e.g. GBT07M/123456789",
+      required: false,
+    },
+    { id: "ninNumber", type: "tel", label: "NIN", question: "Your National Identification Number (NIN)?" },
+    {
+      id: "mouAccepted",
+      type: "mou",
+      label: "MOU acknowledgment",
+      question: "Please read each statement below and check them all to acknowledge your agreement.",
+    },
+    {
+      id: "declarationAccepted",
+      type: "checkbox",
+      label: "Declaration",
+      question: "Almost done — please read this declaration and confirm.",
+    },
+  ];
+}

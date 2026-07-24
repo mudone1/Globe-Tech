@@ -4,8 +4,8 @@ import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
-import { getSignupQuestions, MOU_ITEMS, DECLARATION_TEXT, type SignupQuestion } from "@/lib/signupQuestions";
-import { submitStaffRegistration } from "@/app/signup/register/actions";
+import { getSignupQuestions, getSignupQuestionsSimplified, MOU_ITEMS, DECLARATION_TEXT, type SignupQuestion } from "@/lib/signupQuestions";
+import { submitStaffRegistration, submitStaffRegistrationSimplified } from "@/app/signup/register/actions";
 import styles from "@/components/ChatApplicationForm.module.css";
 
 type FieldValue = string | null;
@@ -36,9 +36,9 @@ interface SavedDraft {
   savedAt: number;
 }
 
-export default function SignupChatForm({ role }: { role: SignupRole }) {
+export default function SignupChatForm({ role, simplified }: { role: SignupRole; simplified?: boolean }) {
   const config = ROLE_CONFIGS[role];
-  const questions = useState(() => getSignupQuestions(role))[0];
+  const questions = useState(() => (simplified ? getSignupQuestionsSimplified() : getSignupQuestions(role)))[0];
 
   const [stage, setStage] = useState<Stage>("welcome");
   const [answers, setAnswers] = useState<Answers>({});
@@ -51,7 +51,7 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState<SavedDraft | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
-  const draftKey = `gt_signup_draft_${role}`;
+  const draftKey = `gt_signup_draft_${simplified ? "simplified" : role}`;
 
   // Look for a saved draft on this device so the applicant can pick up where
   // they left off, even after closing the tab or reloading.
@@ -164,26 +164,41 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
   async function finalSubmit() {
     setStage("submitting");
     setSubmitError(null);
-    const res = await submitStaffRegistration({
-      role,
-      fullName: [answers.firstName, answers.middleName, answers.lastName]
-        .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-        .join(" "),
-      middleName: typeof answers.middleName === "string" ? answers.middleName : undefined,
-      email: typeof answers.email === "string" ? answers.email : "",
-      phone: typeof answers.phone === "string" ? answers.phone : "",
-      state: typeof answers.state === "string" ? answers.state : "",
-      homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
-      socialMediaPlatform: typeof answers.socialMediaPlatform === "string" ? answers.socialMediaPlatform : undefined,
-      socialMediaUsername: typeof answers.socialMediaUsername === "string" ? answers.socialMediaUsername : undefined,
-      ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : undefined,
-      mouAccepted: mouChecked.every(Boolean),
-      declarationAccepted: answers.declarationAccepted === "accepted",
-      referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
-      stateToCoordinate: typeof answers.stateToCoordinate === "string" ? answers.stateToCoordinate : undefined,
-      roleSpecialization: typeof answers.roleSpecialization === "string" ? answers.roleSpecialization : undefined,
-      stateOfInfluence: typeof answers.stateOfInfluence === "string" ? answers.stateOfInfluence : undefined,
-    });
+
+    const res = simplified
+      ? await submitStaffRegistrationSimplified({
+          fullName: [answers.firstName, answers.lastName]
+            .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+            .join(" "),
+          email: typeof answers.email === "string" ? answers.email : "",
+          phone: typeof answers.phone === "string" ? answers.phone : "",
+          state: typeof answers.state === "string" ? answers.state : "",
+          homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
+          ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : "",
+          mouAccepted: mouChecked.every(Boolean),
+          declarationAccepted: answers.declarationAccepted === "accepted",
+          referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
+        })
+      : await submitStaffRegistration({
+          role,
+          fullName: [answers.firstName, answers.middleName, answers.lastName]
+            .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+            .join(" "),
+          middleName: typeof answers.middleName === "string" ? answers.middleName : undefined,
+          email: typeof answers.email === "string" ? answers.email : "",
+          phone: typeof answers.phone === "string" ? answers.phone : "",
+          state: typeof answers.state === "string" ? answers.state : "",
+          homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
+          socialMediaPlatform: typeof answers.socialMediaPlatform === "string" ? answers.socialMediaPlatform : undefined,
+          socialMediaUsername: typeof answers.socialMediaUsername === "string" ? answers.socialMediaUsername : undefined,
+          ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : undefined,
+          mouAccepted: mouChecked.every(Boolean),
+          declarationAccepted: answers.declarationAccepted === "accepted",
+          referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
+          stateToCoordinate: typeof answers.stateToCoordinate === "string" ? answers.stateToCoordinate : undefined,
+          roleSpecialization: typeof answers.roleSpecialization === "string" ? answers.roleSpecialization : undefined,
+          stateOfInfluence: typeof answers.stateOfInfluence === "string" ? answers.stateOfInfluence : undefined,
+        });
 
     if (!res.ok) {
       setSubmitError(res.error);
@@ -229,7 +244,7 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
           ? 96
           : 100;
 
-  const headerLabel = stage === "welcome" ? "Let's get you set up" : `${config.title} Signup`;
+  const headerLabel = stage === "welcome" ? "Let's get you set up" : simplified ? "Marketing Officer Signup" : `${config.title} Signup`;
 
   return (
     <div className={styles.page}>
@@ -264,6 +279,13 @@ export default function SignupChatForm({ role }: { role: SignupRole }) {
             <div className={styles.welcomeHero}>
               {draft ? (
                 <h1>Welcome back — we can continue from where you stopped.</h1>
+              ) : simplified ? (
+                <>
+                  <h1>Hi — let&rsquo;s get you signed up as a Marketing Officer.</h1>
+                  <p>
+                    A few quick questions, one at a time. Have your NIN ready for the ID check at the end.
+                  </p>
+                </>
               ) : (
                 <>
                   <h1>Hi — let&rsquo;s get you signed up as a {config.title}.</h1>

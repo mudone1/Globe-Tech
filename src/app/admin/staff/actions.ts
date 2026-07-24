@@ -1,12 +1,7 @@
 "use server";
 
-import { syncStaffFromSheet, type SyncResult } from "@/lib/sheetsSync";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { staffDocId } from "@/lib/staffId";
-
-export async function runStaffSync(): Promise<SyncResult> {
-  return syncStaffFromSheet();
-}
 
 export type ApprovalResult = { ok: true } | { ok: false; error: string };
 

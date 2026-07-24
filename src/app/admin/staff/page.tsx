@@ -7,7 +7,7 @@ import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
 import Skeleton from "@/components/Skeleton";
-import { runStaffSync, approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
+import { approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
 import type { StaffRecord, LinkTokenRecord } from "@/lib/types";
 
 interface Row extends StaffRecord {
@@ -28,8 +28,6 @@ function StaffTable() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [isSyncing, startSync] = useTransition();
   const [isReviewing, startReview] = useTransition();
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
@@ -74,20 +72,6 @@ function StaffTable() {
     load();
   }, [load]);
 
-  function handleSync() {
-    setSyncMessage(null);
-    startSync(async () => {
-      const result = await runStaffSync();
-      if (!result.ok) {
-        setSyncMessage(`Sync failed: ${result.error}`);
-        return;
-      }
-      const warningNote = result.warnings?.length ? ` (${result.warnings.join(" ")})` : "";
-      setSyncMessage(`Synced ${result.staffSynced} staff record(s).${warningNote}`);
-      await load();
-    });
-  }
-
   function handleApprove(staffId: string) {
     setReviewingId(staffId);
     startReview(async () => {
@@ -123,8 +107,7 @@ function StaffTable() {
           <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
           <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Staff referral links</h1>
           <p className="mt-1 text-sm text-slate">
-            Synced from the onboarding sheet. Each link is a token — the real staffId is never
-            shown in the URL.
+            Each link is a token — the real staffId is never shown in the URL.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -134,21 +117,8 @@ function StaffTable() {
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
-          <button onClick={handleSync} disabled={isSyncing} className="btn-primary whitespace-nowrap">
-            {isSyncing ? "Syncing…" : "Sync now"}
-          </button>
         </div>
       </header>
-
-      {syncMessage && (
-        <p
-          className={`mb-4 rounded-md px-3 py-2 text-sm ${
-            syncMessage.startsWith("Sync failed") ? "bg-bad/10 text-bad" : "bg-goldSoft text-ink"
-          }`}
-        >
-          {syncMessage}
-        </p>
-      )}
 
       {pending.length > 0 && (
         <div className="card-rise mb-6 overflow-hidden rounded-card border border-gold/30 bg-goldSoft/40">
@@ -249,7 +219,7 @@ function StaffTable() {
               <tr>
                 <td colSpan={5} className="px-4 py-8 text-center text-slate">
                   {rows.length === 0
-                    ? 'No staff synced yet — click "Sync now" above.'
+                    ? "No staff yet — staff appear here once they register."
                     : `No staff match "${filter}".`}
                 </td>
               </tr>

@@ -166,6 +166,7 @@ function PersonalDashboard() {
               <div className="hidden items-center gap-4 px-6 pt-4 text-xs uppercase tracking-wide text-slate sm:flex">
                 <span className="w-9" />
                 <span className="min-w-0 flex-1">Staff</span>
+                <span className="hidden w-24 text-right sm:block">Joined</span>
                 <span className="hidden w-32 text-right sm:block">Conversion</span>
                 <span className="w-20 text-right">Submitted</span>
                 <span className="w-20 text-right">Completed</span>
@@ -187,6 +188,9 @@ function PersonalDashboard() {
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-ink">{m.fullName}</p>
                       <p className="text-xs text-slate">{m.tier}</p>
+                    </div>
+                    <div className="hidden w-24 text-right text-xs text-slate sm:block">
+                      {m.registeredAt ? new Date(m.registeredAt).toLocaleDateString("en-GB", { year: "2-digit", month: "short", day: "numeric" }) : "—"}
                     </div>
                     <div className="hidden w-32 items-center gap-2 sm:flex">
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-mist">

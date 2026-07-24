@@ -14,6 +14,7 @@ export interface StaffRecord {
   authUid?: string; // Firebase Auth UID, set once this staff member self-registers
   registrationSource?: "sheet" | "self"; // "self" = registered directly on the website, not synced from the sheet
   pendingApproval?: boolean; // true only for self-registered Regional Coordinators awaiting admin approval
+  registeredAt?: string; // ISO timestamp for new registration model — set for all new referral-based registrations
 
   // Onboarding-form fields, collected during self-registration (mirrors the
   // Globe-Tech onboarding Google Forms — see the chat signup flow).
