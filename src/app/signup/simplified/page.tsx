@@ -25,6 +25,11 @@ export default function SimplifiedSignupPage() {
         <Link href="/admin/login" className="font-medium text-brand hover:underline">
           Log in
         </Link>
+        {" · "}
+        Have an existing Staff ID from before?{" "}
+        <Link href="/signup/legacy" className="font-medium text-brand hover:underline">
+          Use it here
+        </Link>
       </p>
     </AuthLayout>
   );
