@@ -54,6 +54,114 @@ export type RegisterNewStaffResult =
   | { ok: true; staffId: string; setupToken: string; pendingApproval: boolean }
   | { ok: false; error: string };
 
+export interface RegisterNewStaffSimplifiedInput {
+  fullName: string;
+  email: string;
+  phone: string;
+  state: string;
+  homeAddress: string;
+  ninNumber: string;
+  mouAccepted: boolean;
+  declarationAccepted: boolean;
+  referrerCode?: string;
+}
+
+/**
+ * Simplified registration for flat referral-based model.
+ * All new users register as Marketing Officers with optional referrer.
+ * No role selection, no approval flow — always active immediately.
+ */
+export async function registerNewStaffSimplified(
+  input: RegisterNewStaffSimplifiedInput
+): Promise<RegisterNewStaffResult> {
+  const fullName = input.fullName.trim();
+  const email = input.email.trim().toLowerCase();
+  const phone = input.phone.trim();
+  const state = input.state.trim();
+  const homeAddress = input.homeAddress.trim();
+  const ninNumber = (input.ninNumber ?? "").trim();
+
+  if (!fullName || !email || !phone || !state || !homeAddress || !ninNumber) {
+    return { ok: false, error: "Fill in all required fields (name, email, phone, address, state, NIN)." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+  if (!input.mouAccepted || !input.declarationAccepted) {
+    return { ok: false, error: "You must acknowledge the MOU and declaration." };
+  }
+
+  const db = getAdminDb();
+
+  const existingByEmail = await db.collection("staff").where("email", "==", email).limit(1).get();
+  if (!existingByEmail.empty) {
+    return { ok: false, error: "An account already exists with that email." };
+  }
+
+  let reportsToCode: string | undefined;
+  let reportsToName: string | undefined;
+
+  const referrerCode = (input.referrerCode ?? "").trim();
+  if (referrerCode) {
+    const referrerSnap = await db
+      .collection("staff")
+      .where("staffId", "==", referrerCode)
+      .limit(1)
+      .get();
+
+    if (referrerSnap.empty) {
+      return { ok: false, error: "That Staff ID wasn't found. Check it and try again." };
+    }
+
+    const referrer = referrerSnap.docs[0]!.data() as StaffRecord;
+
+    if (!referrer.active) {
+      return { ok: false, error: "That Staff ID isn't active yet." };
+    }
+
+    reportsToCode = referrer.staffId;
+    reportsToName = referrer.fullName;
+  }
+
+  const staffId = await generateStaffCode("Marketing Officer", "M");
+  const now = new Date().toISOString();
+
+  const record: StaffRecord = {
+    staffId,
+    fullName,
+    tier: "Marketing Officer",
+    email,
+    phone,
+    state,
+    homeAddress,
+    active: true,
+    sourceRow: 0,
+    registrationSource: "self",
+    mouAccepted: input.mouAccepted,
+    declarationAccepted: input.declarationAccepted,
+    ninNumber,
+    registeredAt: now,
+    ...(reportsToCode ? { reportsToCode } : {}),
+    ...(reportsToName ? { reportsToName } : {}),
+  };
+
+  await db.collection("staff").doc(staffDocId(staffId)).set(record);
+  await getOrCreateTokenForStaff(staffId);
+
+  const setupToken = generateSetupToken();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString();
+  const tokenRecord: StaffSetupTokenRecord = {
+    token: setupToken,
+    staffId,
+    createdAt: now,
+    expiresAt,
+    used: false,
+  };
+  await db.collection("staffSetupTokens").doc(setupToken).set(tokenRecord);
+
+  return { ok: true, staffId, setupToken, pendingApproval: false };
+}
+
 /**
  * Creates a brand-new staff record directly (no Google Sheet involved),
  * validating the referrer code against the hierarchy rules for that role,
