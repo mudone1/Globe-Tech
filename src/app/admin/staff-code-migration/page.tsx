@@ -1,14 +1,16 @@
 "use client";
 
 import { useState } from "react";
-import { previewMigration, executeMigration } from "./actions";
-import type { MigrationResult } from "@/lib/staffCodeMigration";
+import { previewMigration, executeMigration, resendNotifications } from "./actions";
+import type { MigrationResult, ResendNotificationsResult } from "@/lib/staffCodeMigration";
 
 export default function StaffCodeMigrationPage() {
   const [preview, setPreview] = useState<MigrationResult | null>(null);
   const [result, setResult] = useState<MigrationResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resendResult, setResendResult] = useState<ResendNotificationsResult | null>(null);
+  const [resendLoading, setResendLoading] = useState(false);
 
   const handlePreview = async () => {
     setLoading(true);
@@ -43,6 +45,23 @@ export default function StaffCodeMigrationPage() {
     }
   };
 
+  const handleResend = async () => {
+    if (!window.confirm("This will resend the staff ID correction email to every already-corrected staff member. Continue?")) {
+      return;
+    }
+
+    setResendLoading(true);
+    setError(null);
+    try {
+      const data = await resendNotifications();
+      setResendResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Resend failed");
+    } finally {
+      setResendLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-paper px-6 py-12">
       <div className="mx-auto max-w-4xl">
@@ -54,6 +73,60 @@ export default function StaffCodeMigrationPage() {
             <p className="text-red-800 font-medium">Error: {error}</p>
           </div>
         )}
+
+        {/* Resend Notifications Section */}
+        <div className="mt-8 bg-white rounded-lg border border-line p-6">
+          <h2 className="text-xl font-bold text-ink">Resend Correction Emails</h2>
+          <p className="mt-1 text-sm text-slate">
+            Already ran the migration but emails failed to send? Resend the notification email to
+            everyone already marked as corrected, without touching any staff codes.
+          </p>
+          <button
+            onClick={handleResend}
+            disabled={resendLoading}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {resendLoading ? "Sending..." : "Resend Correction Emails"}
+          </button>
+
+          {resendResult && (
+            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <p className="text-sm text-blue-700">Corrected Staff</p>
+                  <p className="text-xl font-bold text-blue-900">{resendResult.totalCorrectedStaff}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-blue-700">Sent</p>
+                  <p className="text-xl font-bold text-blue-900">{resendResult.emailsSent}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-blue-700">Failed</p>
+                  <p className="text-xl font-bold text-blue-900">{resendResult.emailsFailed}</p>
+                </div>
+              </div>
+              {resendResult.emailErrors.length > 0 && (
+                <div className="mt-3">
+                  <p className="text-sm font-medium text-blue-900">Failed Emails:</p>
+                  <ul className="mt-2 space-y-1 text-sm text-blue-800">
+                    {resendResult.emailErrors.map((err, idx) => (
+                      <li key={idx}>
+                        {err.email}: {err.error}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {resendResult.errors.length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm text-red-600">
+                  {resendResult.errors.map((err, idx) => (
+                    <li key={idx}>• {err}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Preview Section */}
         {!result && (

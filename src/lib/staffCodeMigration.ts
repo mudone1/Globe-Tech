@@ -211,6 +211,67 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
   }
 }
 
+export interface ResendNotificationsResult {
+  success: boolean;
+  totalCorrectedStaff: number;
+  emailsSent: number;
+  emailsFailed: number;
+  emailErrors: Array<{ email: string; error: string }>;
+  errors: string[];
+}
+
+/**
+ * Re-sends the staff code correction email to everyone already marked
+ * staffCodeCorrected in Firestore, without touching any staff codes.
+ * Use this when the migration itself succeeded but email delivery failed
+ * (e.g. a missing/misconfigured email provider).
+ */
+export async function resendStaffCodeCorrectionNotifications(): Promise<ResendNotificationsResult> {
+  const result: ResendNotificationsResult = {
+    success: false,
+    totalCorrectedStaff: 0,
+    emailsSent: 0,
+    emailsFailed: 0,
+    emailErrors: [],
+    errors: [],
+  };
+
+  try {
+    const db = getAdminDb();
+    const correctedSnap = await db.collection("staff").where("staffCodeCorrected", "==", true).get();
+    result.totalCorrectedStaff = correctedSnap.size;
+
+    if (correctedSnap.size === 0) {
+      result.success = true;
+      result.errors.push("No corrected staff records found");
+      return result;
+    }
+
+    const notifications = correctedSnap.docs.map((doc) => {
+      const record = doc.data() as StaffRecord;
+      return {
+        email: record.email,
+        fullName: record.fullName,
+        oldStaffId: record.originalStaffId || record.staffId,
+        newStaffId: record.staffId,
+      };
+    });
+
+    const emailResult = await sendBulkStaffCodeNotifications(notifications);
+
+    result.success = true;
+    result.emailsSent = emailResult.successful;
+    result.emailsFailed = emailResult.failed;
+    result.emailErrors = emailResult.errors;
+
+    return result;
+  } catch (err) {
+    result.success = false;
+    result.errors.push(`Resend failed: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+}
+
 /**
  * Preview the migration without making changes.
  * Returns what would be corrected.
