@@ -238,8 +238,25 @@ function StaffTable() {
                       Pending
                     </span>
                   )}
+                  {r.staffCodeCorrected && (
+                    <span
+                      className="ml-2 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800"
+                      title={`Corrected on ${r.staffCodeCorrectedAt ? new Date(r.staffCodeCorrectedAt).toLocaleDateString() : "unknown date"}`}
+                    >
+                      Corrected
+                    </span>
+                  )}
                 </td>
-                <td className="px-4 py-3 font-mono text-xs text-slate">{r.staffId}</td>
+                <td className="px-4 py-3">
+                  <div className="font-mono text-xs text-slate">
+                    <div>{r.staffId}</div>
+                    {r.originalStaffId && (
+                      <div className="text-yellow-700 text-xs mt-1" title="Original staff code before correction">
+                        Was: {r.originalStaffId}
+                      </div>
+                    )}
+                  </div>
+                </td>
                 <td className="px-4 py-3 font-mono text-xs text-slate">{r.link}</td>
                 <td className="px-4 py-3 text-right">
                   {r.link.startsWith("http") && <CopyButton value={r.link} label="Copy link" />}

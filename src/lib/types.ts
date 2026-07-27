@@ -15,6 +15,9 @@ export interface StaffRecord {
   registrationSource?: "sheet" | "self"; // "self" = registered directly on the website, not synced from the sheet
   pendingApproval?: boolean; // true only for self-registered Regional Coordinators awaiting admin approval
   registeredAt?: string; // ISO timestamp for new registration model — set for all new referral-based registrations
+  staffCodeCorrected?: boolean; // true if this user's staff code was corrected during migration
+  staffCodeCorrectedAt?: string; // ISO timestamp when the correction was applied
+  originalStaffId?: string; // the original incorrect staff code before correction
 
   // Onboarding-form fields, collected during self-registration (mirrors the
   // Globe-Tech onboarding Google Forms — see the chat signup flow).
