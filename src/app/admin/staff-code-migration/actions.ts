@@ -1,4 +1,5 @@
-import "server-only";
+"use server";
+
 import { migrateStaffCodes, previewStaffCodeMigration, type MigrationResult } from "@/lib/staffCodeMigration";
 
 export async function previewMigration(): Promise<MigrationResult> {

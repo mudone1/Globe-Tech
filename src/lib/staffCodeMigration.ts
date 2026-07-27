@@ -1,4 +1,3 @@
-import "server-only";
 import { getAdminDb } from "@/lib/firebase-admin";
 import { staffDocId } from "@/lib/staffId";
 import type { StaffRecord } from "@/lib/types";
