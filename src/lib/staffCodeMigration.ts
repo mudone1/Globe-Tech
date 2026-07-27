@@ -112,14 +112,14 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
       codeMapping.set(record.staffId, newCode);
     });
 
-    // Step 4: Apply corrections
-    console.log("[Migration] Preparing batch operations...");
-    const batch = db.batch();
+    // Step 4: Apply corrections (sequential to avoid batch operation issues)
+    console.log("[Migration] Applying corrections sequentially...");
     let referralUpdatesCount = 0;
 
-    // Track which staffIds are being corrected (to avoid updating them in the same batch)
     const correctedStaffIds = new Set<string>();
+    const newDocRefs = new Map<string, StaffRecord>();
 
+    // First, delete old documents and prepare new ones
     for (const { doc, record } of toCorrect) {
       const oldStaffId = record.staffId;
       const newStaffId = correctStaffCode(oldStaffId);
@@ -127,10 +127,6 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
 
       correctedStaffIds.add(oldStaffId);
 
-      // Delete the old document (with incorrect suffix)
-      batch.delete(doc.ref);
-
-      // Create new document (with correct suffix) with correction metadata
       const correctedRecord: StaffRecord = {
         ...record,
         staffId: newStaffId,
@@ -138,22 +134,37 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
         staffCodeCorrectedAt: now,
         originalStaffId: oldStaffId,
       };
-      batch.set(db.collection("staff").doc(staffDocId(newStaffId)), correctedRecord);
+
+      newDocRefs.set(oldStaffId, correctedRecord);
+
+      try {
+        console.log(`[Migration] Deleting old document: ${oldStaffId}`);
+        await db.collection("staff").doc(staffDocId(oldStaffId)).delete();
+        console.log(`[Migration] Creating new document: ${newStaffId}`);
+        await db.collection("staff").doc(staffDocId(newStaffId)).set(correctedRecord);
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Migration] Error correcting ${oldStaffId}: ${errMsg}`);
+        result.errors.push(`Failed to correct ${oldStaffId}: ${errMsg}`);
+        continue;
+      }
 
       result.corrections.push({
         originalStaffId: oldStaffId,
         newStaffId,
         userName: record.fullName,
-        affectedReferrals: 0, // Will be updated below
+        affectedReferrals: 0,
       });
     }
 
-    // Step 5: Update all referral references (reportsToCode)
-    // Skip updating documents that are themselves being corrected (deleted/recreated in this batch)
+    // Step 5: Update all referral references (reportsToCode) separately
+    console.log("[Migration] Updating referral references...");
+    const referralUpdatePromises: Promise<void>[] = [];
+
     staffSnap.forEach((doc) => {
       const record = doc.data() as StaffRecord;
 
-      // Skip if this staff member is being corrected (already handled above)
+      // Skip if this staff member was being corrected
       if (correctedStaffIds.has(record.staffId)) {
         return;
       }
@@ -162,23 +173,35 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
         const oldReportsTo = record.reportsToCode;
         const newReportsTo = codeMapping.get(oldReportsTo)!;
 
-        batch.update(doc.ref, { reportsToCode: newReportsTo });
-        referralUpdatesCount++;
+        const updatePromise = db
+          .collection("staff")
+          .doc(doc.id)
+          .update({ reportsToCode: newReportsTo })
+          .then(() => {
+            referralUpdatesCount++;
+            const correctionEntry = result.corrections.find(
+              (c) => c.originalStaffId === oldReportsTo
+            );
+            if (correctionEntry) {
+              correctionEntry.affectedReferrals++;
+            }
+          })
+          .catch((err) => {
+            const errMsg = err instanceof Error ? err.message : String(err);
+            console.error(`[Migration] Error updating referrals for ${record.staffId}: ${errMsg}`);
+            result.errors.push(`Referral update failed for ${record.staffId}: ${errMsg}`);
+          });
 
-        // Track affected referrals
-        const correctionEntry = result.corrections.find(
-          (c) => c.originalStaffId === oldReportsTo
-        );
-        if (correctionEntry) {
-          correctionEntry.affectedReferrals++;
-        }
+        referralUpdatePromises.push(updatePromise);
       }
     });
 
-    // Step 6: Commit all changes
-    console.log(`[Migration] Committing ${toCorrect.length} corrections and ${referralUpdatesCount} referral updates...`);
-    await batch.commit();
-    console.log("[Migration] Batch commit completed successfully");
+    // Wait for all referral updates to complete
+    if (referralUpdatePromises.length > 0) {
+      console.log(`[Migration] Waiting for ${referralUpdatePromises.length} referral updates...`);
+      await Promise.all(referralUpdatePromises);
+      console.log("[Migration] All referral updates completed");
+    }
 
     // Step 7: Send notification emails to corrected staff
     console.log("[Migration] Preparing email notifications...");
