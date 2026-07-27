@@ -49,7 +49,8 @@ function correctStaffCode(staffId: string): string {
  * Provides detailed results and logging for manual review.
  */
 export async function migrateStaffCodes(): Promise<MigrationResult> {
-  const db = getAdminDb();
+  console.log("[Migration] Starting staff code migration...");
+
   const result: MigrationResult = {
     success: false,
     totalRecords: 0,
@@ -60,40 +61,55 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
   };
 
   try {
+    console.log("[Migration] Initializing Firebase Admin database...");
+    const db = getAdminDb();
+    console.log("[Migration] Firebase Admin initialized");
+
     // Step 1: Read all staff records
+    console.log("[Migration] Reading all staff records from Firestore...");
     const staffSnap = await db.collection("staff").get();
     result.totalRecords = staffSnap.size;
+    console.log(`[Migration] Found ${result.totalRecords} total staff records`);
 
     if (result.totalRecords === 0) {
+      console.log("[Migration] No staff records found");
       result.success = true;
       result.errors.push("No staff records found in database");
       return result;
     }
 
     // Step 2: Identify records that need correction
+    console.log("[Migration] Identifying records with incorrect suffixes...");
     const toCorrect: Array<{ doc: FirebaseFirestore.DocumentSnapshot; record: StaffRecord }> = [];
 
     staffSnap.forEach((doc) => {
       const record = doc.data() as StaffRecord;
       if (!hasCorrectSuffix(record.staffId)) {
+        console.log(`[Migration] Found incorrect suffix: ${record.staffId}`);
         toCorrect.push({ doc, record });
       }
     });
 
+    console.log(`[Migration] ${toCorrect.length} records need correction`);
+
     if (toCorrect.length === 0) {
+      console.log("[Migration] No records need correction - all suffixes are already correct");
       result.success = true;
       result.correctedCount = 0;
       return result;
     }
 
     // Step 3: Create mapping of old → new staff codes for referral updates
+    console.log("[Migration] Creating code mapping for referral updates...");
     const codeMapping = new Map<string, string>();
     toCorrect.forEach(({ record }) => {
       const newCode = correctStaffCode(record.staffId);
+      console.log(`[Migration] Mapping: ${record.staffId} → ${newCode}`);
       codeMapping.set(record.staffId, newCode);
     });
 
     // Step 4: Apply corrections and collect affected referrals
+    console.log("[Migration] Preparing batch operations...");
     const batch = db.batch();
     let referralUpdatesCount = 0;
 
@@ -145,16 +161,23 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
     });
 
     // Step 6: Commit all changes
+    console.log(`[Migration] Committing ${toCorrect.length} corrections and ${referralUpdatesCount} referral updates...`);
     await batch.commit();
+    console.log("[Migration] Batch commit completed successfully");
 
     result.success = true;
     result.correctedCount = toCorrect.length;
     result.referralUpdatesCount = referralUpdatesCount;
 
+    console.log("[Migration] Migration completed successfully");
+    console.log(`[Migration] Results: ${result.correctedCount} corrected, ${result.referralUpdatesCount} referral updates`);
+
     return result;
   } catch (err) {
     result.success = false;
-    result.errors.push(`Migration failed: ${err instanceof Error ? err.message : String(err)}`);
+    const errorMessage = err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
+    result.errors.push(`Migration failed: ${errorMessage}`);
+    console.error("Migration error:", err);
     return result;
   }
 }
@@ -164,7 +187,8 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
  * Returns what would be corrected.
  */
 export async function previewStaffCodeMigration(): Promise<MigrationResult> {
-  const db = getAdminDb();
+  console.log("[Preview] Starting migration preview...");
+
   const result: MigrationResult = {
     success: true,
     totalRecords: 0,
@@ -175,8 +199,12 @@ export async function previewStaffCodeMigration(): Promise<MigrationResult> {
   };
 
   try {
+    console.log("[Preview] Initializing Firebase Admin...");
+    const db = getAdminDb();
+    console.log("[Preview] Reading all staff records...");
     const staffSnap = await db.collection("staff").get();
     result.totalRecords = staffSnap.size;
+    console.log(`[Preview] Found ${result.totalRecords} records`);
 
     let referralUpdateCount = 0;
 
