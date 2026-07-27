@@ -112,15 +112,20 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
       codeMapping.set(record.staffId, newCode);
     });
 
-    // Step 4: Apply corrections and collect affected referrals
+    // Step 4: Apply corrections
     console.log("[Migration] Preparing batch operations...");
     const batch = db.batch();
     let referralUpdatesCount = 0;
+
+    // Track which staffIds are being corrected (to avoid updating them in the same batch)
+    const correctedStaffIds = new Set<string>();
 
     for (const { doc, record } of toCorrect) {
       const oldStaffId = record.staffId;
       const newStaffId = correctStaffCode(oldStaffId);
       const now = new Date().toISOString();
+
+      correctedStaffIds.add(oldStaffId);
 
       // Delete the old document (with incorrect suffix)
       batch.delete(doc.ref);
@@ -144,8 +149,14 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
     }
 
     // Step 5: Update all referral references (reportsToCode)
+    // Skip updating documents that are themselves being corrected (deleted/recreated in this batch)
     staffSnap.forEach((doc) => {
       const record = doc.data() as StaffRecord;
+
+      // Skip if this staff member is being corrected (already handled above)
+      if (correctedStaffIds.has(record.staffId)) {
+        return;
+      }
 
       if (record.reportsToCode && codeMapping.has(record.reportsToCode)) {
         const oldReportsTo = record.reportsToCode;
