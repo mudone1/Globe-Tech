@@ -1,5 +1,6 @@
 import { getAdminDb } from "@/lib/firebase-admin";
 import { staffDocId } from "@/lib/staffId";
+import { sendBulkStaffCodeNotifications } from "@/lib/staffCodeNotification";
 import type { StaffRecord } from "@/lib/types";
 
 const CORRECT_SUFFIX = "115545925";
@@ -17,6 +18,9 @@ export interface MigrationResult {
     affectedReferrals: number;
   }>;
   errors: string[];
+  emailsSent?: number;
+  emailsFailed?: number;
+  emailErrors?: Array<{ email: string; error: string }>;
 }
 
 /**
@@ -45,8 +49,7 @@ function correctStaffCode(staffId: string): string {
 
 /**
  * One-time migration to fix all existing staff codes with incorrect suffixes.
- * Updates staff records and all referral relationships.
- * Provides detailed results and logging for manual review.
+ * Uses a simpler approach: update reportsToCode fields first, then recreate records with new IDs.
  */
 export async function migrateStaffCodes(): Promise<MigrationResult> {
   console.log("[Migration] Starting staff code migration...");
@@ -81,47 +84,68 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
     // Step 2: Identify records that need correction
     console.log("[Migration] Identifying records with incorrect suffixes...");
     const toCorrect: Array<{ doc: FirebaseFirestore.DocumentSnapshot; record: StaffRecord }> = [];
+    const codeMapping = new Map<string, string>();
 
     staffSnap.forEach((doc) => {
       const record = doc.data() as StaffRecord;
       if (!hasCorrectSuffix(record.staffId)) {
         console.log(`[Migration] Found incorrect suffix: ${record.staffId}`);
         toCorrect.push({ doc, record });
+        const newCode = correctStaffCode(record.staffId);
+        codeMapping.set(record.staffId, newCode);
       }
     });
 
     console.log(`[Migration] ${toCorrect.length} records need correction`);
 
     if (toCorrect.length === 0) {
-      console.log("[Migration] No records need correction - all suffixes are already correct");
+      console.log("[Migration] No records need correction");
       result.success = true;
       result.correctedCount = 0;
       return result;
     }
 
-    // Step 3: Create mapping of old → new staff codes for referral updates
-    console.log("[Migration] Creating code mapping for referral updates...");
-    const codeMapping = new Map<string, string>();
-    toCorrect.forEach(({ record }) => {
-      const newCode = correctStaffCode(record.staffId);
-      console.log(`[Migration] Mapping: ${record.staffId} → ${newCode}`);
-      codeMapping.set(record.staffId, newCode);
-    });
-
-    // Step 4: Apply corrections and collect affected referrals
-    console.log("[Migration] Preparing batch operations...");
-    const batch = db.batch();
+    // Step 3: First pass - Update all reportsToCode fields to point to new codes
+    console.log("[Migration] Step 1: Updating referral references to new staff codes...");
     let referralUpdatesCount = 0;
+
+    for (const doc of staffSnap.docs) {
+      const record = doc.data() as StaffRecord;
+
+      if (record.reportsToCode && codeMapping.has(record.reportsToCode)) {
+        const newReportsTo = codeMapping.get(record.reportsToCode)!;
+
+        try {
+          console.log(
+            `[Migration] Updating ${record.staffId} referral: ${record.reportsToCode} → ${newReportsTo}`
+          );
+          await db.collection("staff").doc(doc.id).update({ reportsToCode: newReportsTo });
+          referralUpdatesCount++;
+
+          const correctionEntry = result.corrections.find(
+            (c) => c.originalStaffId === record.reportsToCode
+          );
+          if (correctionEntry) {
+            correctionEntry.affectedReferrals++;
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error(`[Migration] Error updating referral for ${record.staffId}: ${errMsg}`);
+          result.errors.push(`Referral update failed: ${errMsg}`);
+        }
+      }
+    }
+
+    console.log(`[Migration] Referral updates completed: ${referralUpdatesCount}`);
+
+    // Step 4: Second pass - Now safely delete old and create new documents
+    console.log("[Migration] Step 2: Recreating staff records with corrected codes...");
 
     for (const { doc, record } of toCorrect) {
       const oldStaffId = record.staffId;
       const newStaffId = correctStaffCode(oldStaffId);
       const now = new Date().toISOString();
 
-      // Delete the old document (with incorrect suffix)
-      batch.delete(doc.ref);
-
-      // Create new document (with correct suffix) with correction metadata
       const correctedRecord: StaffRecord = {
         ...record,
         staffId: newStaffId,
@@ -129,48 +153,53 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
         staffCodeCorrectedAt: now,
         originalStaffId: oldStaffId,
       };
-      batch.set(db.collection("staff").doc(staffDocId(newStaffId)), correctedRecord);
 
-      result.corrections.push({
-        originalStaffId: oldStaffId,
-        newStaffId,
-        userName: record.fullName,
-        affectedReferrals: 0, // Will be updated below
-      });
+      try {
+        console.log(`[Migration] Recreating ${oldStaffId} → ${newStaffId}`);
+
+        // Delete old, create new
+        await db.collection("staff").doc(staffDocId(oldStaffId)).delete();
+        await db.collection("staff").doc(staffDocId(newStaffId)).set(correctedRecord);
+
+        result.corrections.push({
+          originalStaffId: oldStaffId,
+          newStaffId,
+          userName: record.fullName,
+          affectedReferrals: 0,
+        });
+
+        result.correctedCount++;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Migration] Error recreating ${oldStaffId}: ${errMsg}`);
+        result.errors.push(`Failed to recreate ${oldStaffId}: ${errMsg}`);
+      }
     }
 
-    // Step 5: Update all referral references (reportsToCode)
-    staffSnap.forEach((doc) => {
-      const record = doc.data() as StaffRecord;
+    // Step 7: Send notification emails to corrected staff
+    console.log("[Migration] Preparing email notifications...");
+    const emailNotifications = toCorrect.map(({ record }) => ({
+      email: record.email,
+      fullName: record.fullName,
+      oldStaffId: record.originalStaffId || record.staffId,
+      newStaffId: correctStaffCode(record.staffId),
+    }));
 
-      if (record.reportsToCode && codeMapping.has(record.reportsToCode)) {
-        const oldReportsTo = record.reportsToCode;
-        const newReportsTo = codeMapping.get(oldReportsTo)!;
-
-        batch.update(doc.ref, { reportsToCode: newReportsTo });
-        referralUpdatesCount++;
-
-        // Track affected referrals
-        const correctionEntry = result.corrections.find(
-          (c) => c.originalStaffId === oldReportsTo
-        );
-        if (correctionEntry) {
-          correctionEntry.affectedReferrals++;
-        }
-      }
-    });
-
-    // Step 6: Commit all changes
-    console.log(`[Migration] Committing ${toCorrect.length} corrections and ${referralUpdatesCount} referral updates...`);
-    await batch.commit();
-    console.log("[Migration] Batch commit completed successfully");
+    console.log(`[Migration] Sending ${emailNotifications.length} notification emails...`);
+    const emailResult = await sendBulkStaffCodeNotifications(emailNotifications);
 
     result.success = true;
     result.correctedCount = toCorrect.length;
     result.referralUpdatesCount = referralUpdatesCount;
+    result.emailsSent = emailResult.successful;
+    result.emailsFailed = emailResult.failed;
+    if (emailResult.errors.length > 0) {
+      result.emailErrors = emailResult.errors;
+      result.errors.push(`Email sending: ${emailResult.failed} failed`);
+    }
 
     console.log("[Migration] Migration completed successfully");
-    console.log(`[Migration] Results: ${result.correctedCount} corrected, ${result.referralUpdatesCount} referral updates`);
+    console.log(`[Migration] Results: ${result.correctedCount} corrected, ${result.referralUpdatesCount} referral updates, ${emailResult.successful} emails sent`);
 
     return result;
   } catch (err) {
