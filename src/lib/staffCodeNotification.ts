@@ -1,5 +1,4 @@
 import "server-only";
-import nodemailer from "nodemailer";
 
 export interface StaffCodeCorrectionNotification {
   email: string;
@@ -8,25 +7,8 @@ export interface StaffCodeCorrectionNotification {
   newStaffId: string;
 }
 
-/**
- * Send email notification to staff about their corrected staff ID
- */
-export async function sendStaffCodeCorrectionEmail(
-  notification: StaffCodeCorrectionNotification
-): Promise<{ success: boolean; error?: string }> {
-  try {
-    // Configure email transport
-    const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT || "587"),
-      secure: process.env.SMTP_SECURE === "true",
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
-
-    const emailContent = `
+function buildStaffCodeCorrectionEmailHtml(notification: StaffCodeCorrectionNotification): string {
+  return `
 <!DOCTYPE html>
 <html>
 <head>
@@ -90,14 +72,40 @@ export async function sendStaffCodeCorrectionEmail(
   </div>
 </body>
 </html>
-    `;
+  `;
+}
 
-    const result = await transporter.sendMail({
-      from: process.env.SMTP_FROM_EMAIL || "noreply@globetechimpact.com",
-      to: notification.email,
-      subject: `Your Staff ID Has Been Updated - Action Required`,
-      html: emailContent,
+/**
+ * Send email notification to staff about their corrected staff ID via Resend
+ * (same provider already used for grant-code emails in src/lib/email.ts).
+ */
+export async function sendStaffCodeCorrectionEmail(
+  notification: StaffCodeCorrectionNotification
+): Promise<{ success: boolean; error?: string }> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { success: false, error: "RESEND_API_KEY is not set. Add it in Vercel's environment variables." };
+  }
+  const from = process.env.GRANT_EMAIL_FROM || "Globe-Tech SME Grant <grant@globetechimpact.com>";
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: notification.email,
+        subject: "Your Staff ID Has Been Updated - Action Required",
+        html: buildStaffCodeCorrectionEmailHtml(notification),
+      }),
     });
+
+    if (!res.ok) {
+      throw new Error(`Resend API error: ${res.status} ${await res.text()}`);
+    }
 
     console.log(`[Email] Sent staff code correction email to ${notification.email}`);
     return { success: true };
