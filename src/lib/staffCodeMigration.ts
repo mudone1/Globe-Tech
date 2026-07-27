@@ -161,6 +161,13 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
         await db.collection("staff").doc(staffDocId(oldStaffId)).delete();
         await db.collection("staff").doc(staffDocId(newStaffId)).set(correctedRecord);
 
+        // Repoint any existing referral link token to the new staffId so
+        // links already shared before the migration keep working.
+        const tokenSnap = await db.collection("linkTokens").where("staffId", "==", oldStaffId).get();
+        for (const tokenDoc of tokenSnap.docs) {
+          await tokenDoc.ref.update({ staffId: newStaffId });
+        }
+
         result.corrections.push({
           originalStaffId: oldStaffId,
           newStaffId,
@@ -268,6 +275,75 @@ export async function resendStaffCodeCorrectionNotifications(): Promise<ResendNo
   } catch (err) {
     result.success = false;
     result.errors.push(`Resend failed: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+}
+
+export interface RepairReferralLinksResult {
+  success: boolean;
+  totalCorrectedStaff: number;
+  tokensRepaired: number;
+  tokensAlreadyOk: number;
+  tokensMissing: number;
+  errors: string[];
+}
+
+/**
+ * Repoints referral link tokens for staff whose code was already corrected
+ * by an earlier migration run (i.e. staffCodeCorrected == true) but whose
+ * linkTokens doc still has the old, now-deleted staffId. Without this, both
+ * the admin dashboard's referral link and any link already shared with an
+ * applicant point at a staffId that no longer exists.
+ */
+export async function repairReferralLinksForCorrectedStaff(): Promise<RepairReferralLinksResult> {
+  const result: RepairReferralLinksResult = {
+    success: false,
+    totalCorrectedStaff: 0,
+    tokensRepaired: 0,
+    tokensAlreadyOk: 0,
+    tokensMissing: 0,
+    errors: [],
+  };
+
+  try {
+    const db = getAdminDb();
+    const correctedSnap = await db.collection("staff").where("staffCodeCorrected", "==", true).get();
+    result.totalCorrectedStaff = correctedSnap.size;
+
+    for (const doc of correctedSnap.docs) {
+      const record = doc.data() as StaffRecord;
+      const oldStaffId = record.originalStaffId;
+      if (!oldStaffId) continue;
+
+      try {
+        // Already pointing at the new staffId — nothing to do.
+        const okSnap = await db.collection("linkTokens").where("staffId", "==", record.staffId).limit(1).get();
+        if (!okSnap.empty) {
+          result.tokensAlreadyOk++;
+          continue;
+        }
+
+        const staleSnap = await db.collection("linkTokens").where("staffId", "==", oldStaffId).get();
+        if (staleSnap.empty) {
+          result.tokensMissing++;
+          continue;
+        }
+
+        for (const tokenDoc of staleSnap.docs) {
+          await tokenDoc.ref.update({ staffId: record.staffId });
+        }
+        result.tokensRepaired++;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        result.errors.push(`Failed to repair token for ${record.staffId}: ${errMsg}`);
+      }
+    }
+
+    result.success = true;
+    return result;
+  } catch (err) {
+    result.success = false;
+    result.errors.push(`Repair failed: ${err instanceof Error ? err.message : String(err)}`);
     return result;
   }
 }

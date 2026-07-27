@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { previewMigration, executeMigration, resendNotifications } from "./actions";
-import type { MigrationResult, ResendNotificationsResult } from "@/lib/staffCodeMigration";
+import { previewMigration, executeMigration, resendNotifications, repairReferralLinks } from "./actions";
+import type { MigrationResult, ResendNotificationsResult, RepairReferralLinksResult } from "@/lib/staffCodeMigration";
 
 export default function StaffCodeMigrationPage() {
   const [preview, setPreview] = useState<MigrationResult | null>(null);
@@ -11,6 +11,8 @@ export default function StaffCodeMigrationPage() {
   const [error, setError] = useState<string | null>(null);
   const [resendResult, setResendResult] = useState<ResendNotificationsResult | null>(null);
   const [resendLoading, setResendLoading] = useState(false);
+  const [repairResult, setRepairResult] = useState<RepairReferralLinksResult | null>(null);
+  const [repairLoading, setRepairLoading] = useState(false);
 
   const handlePreview = async () => {
     setLoading(true);
@@ -62,6 +64,19 @@ export default function StaffCodeMigrationPage() {
     }
   };
 
+  const handleRepairLinks = async () => {
+    setRepairLoading(true);
+    setError(null);
+    try {
+      const data = await repairReferralLinks();
+      setRepairResult(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Repair failed");
+    } finally {
+      setRepairLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-paper px-6 py-12">
       <div className="mx-auto max-w-4xl">
@@ -73,6 +88,53 @@ export default function StaffCodeMigrationPage() {
             <p className="text-red-800 font-medium">Error: {error}</p>
           </div>
         )}
+
+        {/* Repair Referral Links Section */}
+        <div className="mt-8 bg-white rounded-lg border border-line p-6">
+          <h2 className="text-xl font-bold text-ink">Repair Referral Links</h2>
+          <p className="mt-1 text-sm text-slate">
+            Corrected staff show &quot;(token not generated yet)&quot; because their referral link
+            token still points at the deleted old staff code. This repoints existing tokens to the
+            corrected staffId — same link URL, no need to reshare.
+          </p>
+          <button
+            onClick={handleRepairLinks}
+            disabled={repairLoading}
+            className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+          >
+            {repairLoading ? "Repairing..." : "Repair Referral Links"}
+          </button>
+
+          {repairResult && (
+            <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <div className="grid grid-cols-4 gap-4">
+                <div>
+                  <p className="text-sm text-blue-700">Corrected Staff</p>
+                  <p className="text-xl font-bold text-blue-900">{repairResult.totalCorrectedStaff}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-blue-700">Repaired</p>
+                  <p className="text-xl font-bold text-blue-900">{repairResult.tokensRepaired}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-blue-700">Already OK</p>
+                  <p className="text-xl font-bold text-blue-900">{repairResult.tokensAlreadyOk}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-blue-700">No Link Found</p>
+                  <p className="text-xl font-bold text-blue-900">{repairResult.tokensMissing}</p>
+                </div>
+              </div>
+              {repairResult.errors.length > 0 && (
+                <ul className="mt-3 space-y-1 text-sm text-red-600">
+                  {repairResult.errors.map((err, idx) => (
+                    <li key={idx}>• {err}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Resend Notifications Section */}
         <div className="mt-8 bg-white rounded-lg border border-line p-6">

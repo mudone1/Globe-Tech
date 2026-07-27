@@ -4,8 +4,10 @@ import {
   migrateStaffCodes,
   previewStaffCodeMigration,
   resendStaffCodeCorrectionNotifications,
+  repairReferralLinksForCorrectedStaff,
   type MigrationResult,
   type ResendNotificationsResult,
+  type RepairReferralLinksResult,
 } from "@/lib/staffCodeMigration";
 
 export async function previewMigration(): Promise<MigrationResult> {
@@ -18,4 +20,8 @@ export async function executeMigration(): Promise<MigrationResult> {
 
 export async function resendNotifications(): Promise<ResendNotificationsResult> {
   return resendStaffCodeCorrectionNotifications();
+}
+
+export async function repairReferralLinks(): Promise<RepairReferralLinksResult> {
+  return repairReferralLinksForCorrectedStaff();
 }
