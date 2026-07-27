@@ -11,24 +11,30 @@ const setupTokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwx
 const generateSetupToken = customAlphabet(setupTokenAlphabet, 24);
 
 /**
- * Matches the existing sheet-era staff code style (e.g. "GBT07R/115545925"):
+ * Generates staff codes using the fixed suffix format (e.g. "GBT07R/115545925"):
  * GBT + 2-digit sequence (how many staff of this tier exist already) +
- * tier letter + "/" + 9 random digits. The sequence number is cosmetic
- * (mirrors the historical format) — uniqueness is guaranteed by the random
- * suffix and the collision check below, not by the sequence itself.
+ * tier letter + "/" + fixed 9-digit suffix (115545925). The sequence number
+ * is cosmetic (mirrors the historical format) — uniqueness is guaranteed by
+ * the tier+sequence combination and collision check below.
  */
 async function generateStaffCode(tier: string, letter: string): Promise<string> {
   const db = getAdminDb();
   const countSnap = await db.collection("staff").where("tier", "==", tier).count().get();
   const seq = String(countSnap.data().count + 1).padStart(2, "0");
 
-  for (let attempt = 0; attempt < 8; attempt++) {
-    const candidate = `GBT${seq}${letter}/${randomDigits()}`;
-    const existing = await db.collection("staff").doc(staffDocId(candidate)).get();
-    if (!existing.exists) return candidate;
-  }
-  // Vanishingly unlikely fallback if 8 straight collisions happen — widen the random space.
-  return `GBT${seq}${letter}/${randomDigits()}${randomDigits().slice(0, 3)}`;
+  // Use fixed suffix for all new staff codes
+  const fixedSuffix = "115545925";
+  const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
+
+  // Verify this code doesn't already exist (collision check)
+  const existing = await db.collection("staff").doc(staffDocId(candidate)).get();
+  if (!existing.exists) return candidate;
+
+  // If collision occurs (extremely unlikely), throw error with helpful message
+  throw new Error(
+    `Staff code collision: ${candidate} already exists. This should be vanishingly rare. ` +
+    `Contact an administrator if you see this error.`
+  );
 }
 
 export interface RegisterNewStaffInput {
