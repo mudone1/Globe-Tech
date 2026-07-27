@@ -136,7 +136,16 @@ export async function sendBulkStaffCodeNotifications(
 
   console.log(`[Email] Sending ${notifications.length} staff code correction emails...`);
 
-  for (const notification of notifications) {
+  // Resend allows 10 requests/second — space sends out to stay under that
+  // instead of firing sequential calls as fast as the event loop allows.
+  const MIN_INTERVAL_MS = 150;
+
+  for (let i = 0; i < notifications.length; i++) {
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, MIN_INTERVAL_MS));
+    }
+
+    const notification = notifications[i]!;
     const sendResult = await sendStaffCodeCorrectionEmail(notification);
     if (sendResult.success) {
       result.successful++;
