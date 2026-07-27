@@ -137,19 +137,49 @@ export default function StaffCodeMigrationPage() {
             </div>
 
             {result.success && (
-              <div className="mt-4 grid grid-cols-3 gap-4">
-                <div>
-                  <p className="text-sm text-slate">Corrected</p>
-                  <p className="text-2xl font-bold text-green-600">{result.correctedCount}</p>
+              <div className="mt-4 space-y-4">
+                <div className="grid grid-cols-3 gap-4">
+                  <div>
+                    <p className="text-sm text-slate">Corrected</p>
+                    <p className="text-2xl font-bold text-green-600">{result.correctedCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate">Referral Updates</p>
+                    <p className="text-2xl font-bold text-ink">{result.referralUpdatesCount}</p>
+                  </div>
+                  <div>
+                    <p className="text-sm text-slate">Total Records</p>
+                    <p className="text-2xl font-bold text-ink">{result.totalRecords}</p>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm text-slate">Referral Updates</p>
-                  <p className="text-2xl font-bold text-ink">{result.referralUpdatesCount}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate">Total Records</p>
-                  <p className="text-2xl font-bold text-ink">{result.totalRecords}</p>
-                </div>
+
+                {result.emailsSent !== undefined && (
+                  <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <h3 className="font-bold text-blue-900">Email Notifications</h3>
+                    <div className="mt-2 grid grid-cols-2 gap-4">
+                      <div>
+                        <p className="text-sm text-blue-700">Sent Successfully</p>
+                        <p className="text-xl font-bold text-blue-900">{result.emailsSent}</p>
+                      </div>
+                      <div>
+                        <p className="text-sm text-blue-700">Failed</p>
+                        <p className="text-xl font-bold text-blue-900">{result.emailsFailed}</p>
+                      </div>
+                    </div>
+                    {result.emailErrors && result.emailErrors.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-sm font-medium text-blue-900">Failed Emails:</p>
+                        <ul className="mt-2 space-y-1 text-sm text-blue-800">
+                          {result.emailErrors.map((err, idx) => (
+                            <li key={idx}>
+                              {err.email}: {err.error}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 

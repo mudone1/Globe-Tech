@@ -1,5 +1,6 @@
 import { getAdminDb } from "@/lib/firebase-admin";
 import { staffDocId } from "@/lib/staffId";
+import { sendBulkStaffCodeNotifications } from "@/lib/staffCodeNotification";
 import type { StaffRecord } from "@/lib/types";
 
 const CORRECT_SUFFIX = "115545925";
@@ -17,6 +18,9 @@ export interface MigrationResult {
     affectedReferrals: number;
   }>;
   errors: string[];
+  emailsSent?: number;
+  emailsFailed?: number;
+  emailErrors?: Array<{ email: string; error: string }>;
 }
 
 /**
@@ -165,12 +169,30 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
     await batch.commit();
     console.log("[Migration] Batch commit completed successfully");
 
+    // Step 7: Send notification emails to corrected staff
+    console.log("[Migration] Preparing email notifications...");
+    const emailNotifications = toCorrect.map(({ record }) => ({
+      email: record.email,
+      fullName: record.fullName,
+      oldStaffId: record.originalStaffId || record.staffId,
+      newStaffId: correctStaffCode(record.staffId),
+    }));
+
+    console.log(`[Migration] Sending ${emailNotifications.length} notification emails...`);
+    const emailResult = await sendBulkStaffCodeNotifications(emailNotifications);
+
     result.success = true;
     result.correctedCount = toCorrect.length;
     result.referralUpdatesCount = referralUpdatesCount;
+    result.emailsSent = emailResult.successful;
+    result.emailsFailed = emailResult.failed;
+    if (emailResult.errors.length > 0) {
+      result.emailErrors = emailResult.errors;
+      result.errors.push(`Email sending: ${emailResult.failed} failed`);
+    }
 
     console.log("[Migration] Migration completed successfully");
-    console.log(`[Migration] Results: ${result.correctedCount} corrected, ${result.referralUpdatesCount} referral updates`);
+    console.log(`[Migration] Results: ${result.correctedCount} corrected, ${result.referralUpdatesCount} referral updates, ${emailResult.successful} emails sent`);
 
     return result;
   } catch (err) {
