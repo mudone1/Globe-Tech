@@ -1,4 +1,4 @@
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminDb, getAdminAuth } from "@/lib/firebase-admin";
 import { staffDocId } from "@/lib/staffId";
 import { sendBulkStaffCodeNotifications } from "@/lib/staffCodeNotification";
 import type { StaffRecord } from "@/lib/types";
@@ -160,6 +160,16 @@ export async function migrateStaffCodes(): Promise<MigrationResult> {
         // Delete old, create new
         await db.collection("staff").doc(staffDocId(oldStaffId)).delete();
         await db.collection("staff").doc(staffDocId(newStaffId)).set(correctedRecord);
+
+        // Keep the Firebase Auth ID token's staffId claim in sync — login
+        // trusts this claim, not the Firestore doc, so without this update
+        // staff can never log in again after their code changes.
+        if (record.authUid) {
+          await getAdminAuth().setCustomUserClaims(record.authUid, {
+            staffId: newStaffId,
+            tier: record.tier,
+          });
+        }
 
         // Repoint any existing referral link token to the new staffId so
         // links already shared before the migration keep working.
@@ -336,6 +346,59 @@ export async function repairReferralLinksForCorrectedStaff(): Promise<RepairRefe
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
         result.errors.push(`Failed to repair token for ${record.staffId}: ${errMsg}`);
+      }
+    }
+
+    result.success = true;
+    return result;
+  } catch (err) {
+    result.success = false;
+    result.errors.push(`Repair failed: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+}
+
+export interface RepairAuthClaimsResult {
+  success: boolean;
+  totalCorrectedStaff: number;
+  repaired: number;
+  skipped: number;
+  errors: string[];
+}
+
+/**
+ * Re-syncs the Firebase Auth staffId claim for everyone already marked
+ * staffCodeCorrected == true, whose claim may still point at their old,
+ * now-deleted staffId from a migration run that predates this fix.
+ * Run this once to unblock anyone currently locked out of login.
+ */
+export async function repairAuthClaimsForCorrectedStaff(): Promise<RepairAuthClaimsResult> {
+  const result: RepairAuthClaimsResult = {
+    success: false,
+    totalCorrectedStaff: 0,
+    repaired: 0,
+    skipped: 0,
+    errors: [],
+  };
+
+  try {
+    const db = getAdminDb();
+    const auth = getAdminAuth();
+    const snap = await db.collection("staff").where("staffCodeCorrected", "==", true).get();
+    result.totalCorrectedStaff = snap.size;
+
+    for (const doc of snap.docs) {
+      const record = doc.data() as StaffRecord;
+      if (!record.authUid) {
+        result.skipped++;
+        continue;
+      }
+      try {
+        await auth.setCustomUserClaims(record.authUid, { staffId: record.staffId, tier: record.tier });
+        result.repaired++;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        result.errors.push(`Failed to repair claim for ${record.staffId}: ${errMsg}`);
       }
     }
 

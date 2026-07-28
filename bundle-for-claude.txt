@@ -1,0 +1,2615 @@
+]633;E;for f in   src/app/apply/\\[token\\]/actions.ts   src/lib/applicationFields.ts   src/lib/selfRegistration.ts   src/lib/referral.ts   src/lib/email.ts   src/app/apply/\\[token\\]/page.tsx   src/components/ApplicationForm.tsx   src/app/apply/account-details/\\[applicationId\\]/page.tsx   src/app/apply/account-details/actions.ts   src/lib/staffAuth.ts   src/lib/staffCodeMigration.ts   src/lib/staffCodeNotification.ts   src/lib/staffId.ts   src/app/admin/staff/actions.ts   src/app/admin/staff-code-migration/actions.ts   src/app/admin/login/actions.ts \x3b do   echo "===== $f ====="\x3b   cat "$f"\x3b   echo ""\x3b done > bundle-for-claude.txt;c7fee225-0684-4b29-9856-cce6177c38d3]633;C===== src/app/apply/[token]/actions.ts =====
+"use server";
+
+import { cookies } from "next/headers";
+import { getAdminDb } from "@/lib/firebase-admin";
+import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
+import { sendGrantCodeEmail } from "@/lib/email";
+import { GRANT_CATEGORIES } from "@/lib/grantCategories";
+import { maskEmail } from "@/lib/maskEmail";
+import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
+
+const REF_COOKIE = "gt_ref_token";
+
+/**
+ * Called once on page load (client useEffect) to persist the token in a
+ * short-lived cookie. This is the "cookie fallback" from the architecture
+ * table — it survives a refresh even if the applicant loses the URL.
+ * The cookie stores the opaque token only, never the resolved staffId.
+ *
+ * Also logs a lightweight visit record so the admin analytics dashboard can
+ * show a real "link visited → application submitted" conversion rate, not
+ * just submission counts. Best-effort — a failed write here never blocks
+ * the applicant from continuing.
+ */
+export async function recordVisit(token: string) {
+  const store = await cookies();
+  store.set(REF_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 7, // 7 days — long enough to cover a slow applicant, short enough to stay "short-lived"
+    path: "/",
+  });
+
+  try {
+    const [staffId, isTest] = await Promise.all([
+      resolveStaffIdFromToken(token).then((id) => id ?? "unassigned"),
+      isTokenFlaggedTest(token),
+    ]);
+    const record: VisitRecord = { token, staffId, visitedAt: new Date().toISOString(), ...(isTest ? { isTest: true } : {}) };
+    await getAdminDb().collection("visits").add(record);
+  } catch (err) {
+    console.error("recordVisit: failed to log visit (non-fatal):", err);
+  }
+}
+
+export interface SubmitApplicationInput {
+  token: string;
+
+  grantCategory: GrantCategoryId;
+  grantAmount: number;
+
+  // Universal
+  applicantName: string;
+  phone: string;
+  email: string;
+  stateOfResidence: string;
+  businessName: string;
+  grantNeedExplanation: string;
+
+  // Trader categories (1–3) only
+  businessType?: string;
+  businessLocation?: string;
+  monthlyProductCost?: number;
+
+  // Enterprise/LLC categories (4–6) only
+  cacNumber?: string;
+  businessDescription?: string;
+
+  declarationAgreed: boolean;
+
+  honeypot: string; // must arrive empty — bots fill every field
+}
+
+export interface SubmitApplicationResult {
+  ok: boolean;
+  error?: string;
+  grantCode?: string;
+}
+
+export async function submitApplication(
+  input: SubmitApplicationInput
+): Promise<SubmitApplicationResult> {
+  // Spam guard: a real applicant never sees or fills this field.
+  if (input.honeypot) {
+    // Pretend success so bots don't learn the honeypot worked.
+    return { ok: true, grantCode: "GT-DEMO" };
+  }
+
+  const category = GRANT_CATEGORIES.find((c) => c.id === input.grantCategory);
+  if (!category) {
+    return { ok: false, error: "Select a grant category to continue." };
+  }
+
+  const requiredStrings: Array<[string, string]> = [
+    ["Full name", input.applicantName],
+    ["Phone number", input.phone],
+    ["Email address", input.email],
+    ["State of residence", input.stateOfResidence],
+    ["Business name", input.businessName],
+    ["Why you need this grant", input.grantNeedExplanation],
+  ];
+
+  if (category.tier === "trader") {
+    requiredStrings.push(["Business type", input.businessType ?? ""], ["Business location", input.businessLocation ?? ""]);
+    if (!input.monthlyProductCost || Number(input.monthlyProductCost) <= 0) {
+      return { ok: false, error: "Enter your approximate monthly product cost." };
+    }
+  } else {
+    requiredStrings.push(
+      ["CAC registration number", input.cacNumber ?? ""],
+      ["Business description", input.businessDescription ?? ""]
+    );
+  }
+
+  for (const [label, value] of requiredStrings) {
+    if (!value || !value.trim()) {
+      return { ok: false, error: `Please complete: ${label}.` };
+    }
+  }
+
+  if (!input.declarationAgreed) {
+    return { ok: false, error: "Please confirm the final declaration to submit." };
+  }
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email);
+  if (!emailOk) {
+    return { ok: false, error: "Please enter a valid email address." };
+  }
+  const phoneOk = /^[0-9+()\-\s]{7,}$/.test(input.phone);
+  if (!phoneOk) {
+    return { ok: false, error: "Please enter a valid phone number." };
+  }
+
+  // One phone number = one applicant. The same email can apply multiple
+  // times (e.g. for different businesses), but a repeat phone number means
+  // this is very likely the same person re-applying — point them back to
+  // their existing application instead of creating a duplicate.
+  const normalizedPhone = input.phone.trim();
+  const existingByPhone = await getAdminDb()
+    .collection("applications")
+    .where("phone", "==", normalizedPhone)
+    .limit(1)
+    .get();
+  if (!existingByPhone.empty) {
+    const existing = existingByPhone.docs[0]!.data() as ApplicationRecord;
+    return {
+      ok: false,
+      error: `An application has already been submitted using this phone number. Please check your email (${maskEmail(existing.email)}) for your previous application and Grant Code.`,
+    };
+  }
+
+  // Resolve fresh from the token — don't trust anything the client claims
+  // about who referred them. Fall back to the cookie if the token itself
+  // is missing (e.g. a future multi-step flow that drops the URL segment).
+  let resolvedToken = input.token;
+  let staffId = await resolveStaffIdFromToken(input.token);
+  if (!staffId) {
+    const store = await cookies();
+    const cookieToken = store.get(REF_COOKIE)?.value;
+    staffId = await resolveStaffIdFromToken(cookieToken);
+    if (staffId && cookieToken) resolvedToken = cookieToken;
+  }
+  const isTest = await isTokenFlaggedTest(resolvedToken);
+
+  const grantCode = staffId ?? "unassigned";
+  const now = new Date().toISOString();
+
+  const docRef = getAdminDb().collection("applications").doc();
+  const record: ApplicationRecord = {
+    applicationId: docRef.id,
+    referredBy: staffId ?? "unassigned",
+    ...(isTest ? { isTest: true } : {}),
+
+    grantCategory: input.grantCategory,
+    grantAmount: category.amount,
+
+    applicantName: input.applicantName.trim(),
+    phone: input.phone.trim(),
+    email: input.email.trim().toLowerCase(),
+    stateOfResidence: input.stateOfResidence,
+    businessName: input.businessName.trim(),
+    grantNeedExplanation: input.grantNeedExplanation.trim(),
+
+    ...(category.tier === "trader"
+      ? {
+          businessType: (input.businessType ?? "").trim(),
+          businessLocation: (input.businessLocation ?? "").trim(),
+          monthlyProductCost: Number(input.monthlyProductCost) || 0,
+        }
+      : {
+          cacNumber: (input.cacNumber ?? "").trim(),
+          businessDescription: (input.businessDescription ?? "").trim(),
+        }),
+
+    declarationAgreed: input.declarationAgreed,
+
+    status: "phase1_submitted",
+    createdAt: now,
+    phase1SubmittedAt: now,
+    grantCode,
+  };
+
+  await docRef.set(record);
+
+  // Send the Grant Code + FirstBank account-opening guide immediately.
+  // A failed send never fails the submission itself — the application is
+  // already saved — it's just logged to emailLogs so it's visible to admins
+  // rather than silently disappearing.
+  try {
+    await sendGrantCodeEmail({
+      to: record.email,
+      applicantName: record.applicantName,
+      grantCode,
+      grantCategoryName: category.name,
+      grantAmount: category.amount,
+      applicationId: docRef.id,
+    });
+    await docRef.update({ status: "phase2_email_sent" });
+    await getAdminDb().collection("emailLogs").add({
+      applicationId: docRef.id,
+      type: "phase2_instructions",
+      sentAt: new Date().toISOString(),
+      opened: false,
+      clicked: false,
+    } satisfies EmailLogRecord);
+  } catch (err) {
+    console.error(`Grant Code email failed for application ${docRef.id}:`, err);
+    await getAdminDb()
+      .collection("emailLogs")
+      .add({
+        applicationId: docRef.id,
+        type: "phase2_instructions",
+        sentAt: new Date().toISOString(),
+        opened: false,
+        clicked: false,
+        error: err instanceof Error ? err.message : String(err),
+      } satisfies EmailLogRecord);
+  }
+
+  return { ok: true, grantCode };
+}
+
+===== src/lib/applicationFields.ts =====
+import type { ApplicationRecord } from "@/lib/types";
+import { getGrantCategory } from "@/lib/grantCategories";
+
+export type FieldDisplayType = "text" | "currency" | "boolean" | "link";
+
+export interface FieldMeta {
+  key: keyof ApplicationRecord;
+  label: string;
+  type?: FieldDisplayType;
+}
+
+export interface FieldGroup {
+  title: string;
+  fields: FieldMeta[];
+}
+
+const UNIVERSAL_FIELDS: FieldMeta[] = [
+  { key: "applicantName", label: "Full name" },
+  { key: "phone", label: "Phone number" },
+  { key: "email", label: "Email address" },
+  { key: "stateOfResidence", label: "State of residence" },
+  { key: "businessName", label: "Business name" },
+  { key: "grantNeedExplanation", label: "Why they need this grant" },
+];
+
+const TRADER_FIELDS: FieldMeta[] = [
+  { key: "businessType", label: "Business type" },
+  { key: "businessLocation", label: "Business location" },
+  { key: "monthlyProductCost", label: "Approx. monthly product cost", type: "currency" },
+];
+
+const CAC_FIELDS: FieldMeta[] = [
+  { key: "cacNumber", label: "BN / RC number" },
+  { key: "businessDescription", label: "Business description" },
+];
+
+/** Builds the field groups for one application, tailored to its grant category's tier. */
+export function getApplicationFieldGroups(record: ApplicationRecord): FieldGroup[] {
+  const category = getGrantCategory(record.grantCategory);
+  const tailored = category.tier === "trader" ? TRADER_FIELDS : CAC_FIELDS;
+  return [
+    { title: "Applicant", fields: UNIVERSAL_FIELDS },
+    { title: category.tier === "trader" ? "Business Details" : "Business Registration", fields: tailored },
+    { title: "Declaration", fields: [{ key: "declarationAgreed", label: "Declaration", type: "boolean" }] },
+  ];
+}
+
+export function formatFieldValue(record: ApplicationRecord, field: FieldMeta): string {
+  const raw = record[field.key];
+  if (field.type === "currency") {
+    const n = Number(raw);
+    return n ? `₦${n.toLocaleString()}` : "—";
+  }
+  if (field.type === "boolean") {
+    return raw ? "Agreed ✓" : "Not agreed";
+  }
+  if (field.type === "link") {
+    return typeof raw === "string" && raw ? raw : "—";
+  }
+  const s = typeof raw === "string" ? raw.trim() : String(raw ?? "");
+  return s || "—";
+}
+
+===== src/lib/selfRegistration.ts =====
+import "server-only";
+import { customAlphabet } from "nanoid";
+import { getAdminDb, getAdminAuth } from "@/lib/firebase-admin";
+import { staffDocId } from "@/lib/staffId";
+import { getOrCreateTokenForStaff } from "@/lib/referral";
+import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
+import type { StaffRecord, StaffSetupTokenRecord } from "@/lib/types";
+
+const randomDigits = customAlphabet("0123456789", 9);
+const setupTokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
+const generateSetupToken = customAlphabet(setupTokenAlphabet, 24);
+
+/**
+ * Generates staff codes using the fixed suffix format (e.g. "GBT07R/115545925"):
+ * GBT + 2-digit sequence (how many staff of this tier exist already) +
+ * tier letter + "/" + fixed 9-digit suffix (115545925). The sequence number
+ * is cosmetic (mirrors the historical format) — uniqueness is guaranteed by
+ * the tier+sequence combination and collision check below.
+ */
+async function generateStaffCode(tier: string, letter: string): Promise<string> {
+  const db = getAdminDb();
+  const countSnap = await db.collection("staff").where("tier", "==", tier).count().get();
+  const seq = String(countSnap.data().count + 1).padStart(2, "0");
+
+  // Use fixed suffix for all new staff codes
+  const fixedSuffix = "115545925";
+  const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
+
+  // Verify this code doesn't already exist (collision check)
+  const existing = await db.collection("staff").doc(staffDocId(candidate)).get();
+  if (!existing.exists) return candidate;
+
+  // If collision occurs (extremely unlikely), throw error with helpful message
+  throw new Error(
+    `Staff code collision: ${candidate} already exists. This should be vanishingly rare. ` +
+    `Contact an administrator if you see this error.`
+  );
+}
+
+export interface RegisterNewStaffInput {
+  role: SignupRole;
+  fullName: string;
+  middleName?: string;
+  email: string;
+  phone: string;
+  state: string;
+  homeAddress: string;
+  socialMediaPlatform?: string;
+  socialMediaUsername?: string;
+  ninNumber?: string;
+  mouAccepted: boolean;
+  declarationAccepted: boolean;
+  referrerCode?: string;
+  stateToCoordinate?: string; // State Coordinator only
+  roleSpecialization?: string; // Regional Coordinator only
+  stateOfInfluence?: string; // Regional Coordinator only
+}
+
+export type RegisterNewStaffResult =
+  | { ok: true; staffId: string; setupToken: string; pendingApproval: boolean }
+  | { ok: false; error: string };
+
+export interface RegisterNewStaffSimplifiedInput {
+  fullName: string;
+  email: string;
+  phone: string;
+  state: string;
+  homeAddress: string;
+  ninNumber: string;
+  mouAccepted: boolean;
+  declarationAccepted: boolean;
+  referrerCode?: string;
+}
+
+/**
+ * Simplified registration for flat referral-based model.
+ * All new users register as Marketing Officers with optional referrer.
+ * No role selection, no approval flow — always active immediately.
+ */
+export async function registerNewStaffSimplified(
+  input: RegisterNewStaffSimplifiedInput
+): Promise<RegisterNewStaffResult> {
+  const fullName = input.fullName.trim();
+  const email = input.email.trim().toLowerCase();
+  const phone = input.phone.trim();
+  const state = input.state.trim();
+  const homeAddress = input.homeAddress.trim();
+  const ninNumber = (input.ninNumber ?? "").trim();
+
+  if (!fullName || !email || !phone || !state || !homeAddress || !ninNumber) {
+    return { ok: false, error: "Fill in all required fields (name, email, phone, address, state, NIN)." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+  if (!input.mouAccepted || !input.declarationAccepted) {
+    return { ok: false, error: "You must acknowledge the MOU and declaration." };
+  }
+
+  const db = getAdminDb();
+
+  const existingByEmail = await db.collection("staff").where("email", "==", email).limit(1).get();
+  if (!existingByEmail.empty) {
+    return { ok: false, error: "An account already exists with that email." };
+  }
+
+  let reportsToCode: string | undefined;
+  let reportsToName: string | undefined;
+
+  const referrerCode = (input.referrerCode ?? "").trim();
+  if (referrerCode) {
+    const referrerSnap = await db
+      .collection("staff")
+      .where("staffId", "==", referrerCode)
+      .limit(1)
+      .get();
+
+    if (referrerSnap.empty) {
+      return { ok: false, error: "That Staff ID wasn't found. Check it and try again." };
+    }
+
+    const referrer = referrerSnap.docs[0]!.data() as StaffRecord;
+
+    if (!referrer.active) {
+      return { ok: false, error: "That Staff ID isn't active yet." };
+    }
+
+    reportsToCode = referrer.staffId;
+    reportsToName = referrer.fullName;
+  }
+
+  const staffId = await generateStaffCode("Marketing Officer", "M");
+  const now = new Date().toISOString();
+
+  const record: StaffRecord = {
+    staffId,
+    fullName,
+    tier: "Marketing Officer",
+    email,
+    phone,
+    state,
+    homeAddress,
+    active: true,
+    sourceRow: 0,
+    registrationSource: "self",
+    mouAccepted: input.mouAccepted,
+    declarationAccepted: input.declarationAccepted,
+    ninNumber,
+    registeredAt: now,
+    ...(reportsToCode ? { reportsToCode } : {}),
+    ...(reportsToName ? { reportsToName } : {}),
+  };
+
+  await db.collection("staff").doc(staffDocId(staffId)).set(record);
+  await getOrCreateTokenForStaff(staffId);
+
+  const setupToken = generateSetupToken();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString();
+  const tokenRecord: StaffSetupTokenRecord = {
+    token: setupToken,
+    staffId,
+    createdAt: now,
+    expiresAt,
+    used: false,
+  };
+  await db.collection("staffSetupTokens").doc(setupToken).set(tokenRecord);
+
+  return { ok: true, staffId, setupToken, pendingApproval: false };
+}
+
+/**
+ * Creates a brand-new staff record directly (no Google Sheet involved),
+ * validating the referrer code against the hierarchy rules for that role,
+ * then generates a setup token for the "set password" step that follows.
+ */
+export async function registerNewStaff(input: RegisterNewStaffInput): Promise<RegisterNewStaffResult> {
+  const config = ROLE_CONFIGS[input.role];
+  if (!config) return { ok: false, error: "Unknown role." };
+
+  const fullName = input.fullName.trim();
+  const email = input.email.trim().toLowerCase();
+  const phone = input.phone.trim();
+  const state = input.state.trim();
+  const homeAddress = input.homeAddress.trim();
+
+  const ninNumber = (input.ninNumber ?? "").trim();
+
+  if (!fullName || !email || !phone || !state || !homeAddress || !ninNumber) {
+    return { ok: false, error: "Fill in your name, email, phone, address, state, and NIN." };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "Enter a valid email address." };
+  }
+  if (!input.mouAccepted) {
+    return { ok: false, error: "You'll need to acknowledge all the MOU statements to continue." };
+  }
+  if (!input.declarationAccepted) {
+    return { ok: false, error: "You'll need to confirm the declaration to continue." };
+  }
+
+  const db = getAdminDb();
+
+  // Reject a duplicate email up front — createUser would also catch this
+  // later, but this way we don't burn a generated staff code on a
+  // registration that was always going to fail.
+  const existingByEmail = await db.collection("staff").where("email", "==", email).limit(1).get();
+  if (!existingByEmail.empty) {
+    return { ok: false, error: "An account already exists with that email. Try logging in instead." };
+  }
+
+  let reportsToCode: string | undefined;
+  let reportsToName: string | undefined;
+
+  if (config.referrerTier) {
+    const referrerCode = (input.referrerCode ?? "").trim();
+    if (!referrerCode) {
+      return { ok: false, error: `Enter ${(config.referrerLabel ?? "a referrer code").toLowerCase()}.` };
+    }
+    const referrerSnap = await db.collection("staff").where("staffId", "==", referrerCode).limit(1).get();
+    if (referrerSnap.empty) {
+      return { ok: false, error: "That staff code wasn't found. Double-check it and try again." };
+    }
+    const referrer = referrerSnap.docs[0]!.data() as StaffRecord;
+    if (referrer.tier !== config.referrerTier) {
+      return { ok: false, error: `That code belongs to a ${referrer.tier}, not a ${config.referrerTier}.` };
+    }
+    if (!referrer.active) {
+      return { ok: false, error: "That staff code isn't active yet — ask them to confirm their account is approved." };
+    }
+    reportsToCode = referrer.staffId;
+    reportsToName = referrer.fullName;
+  }
+
+  const staffId = await generateStaffCode(config.tier, config.codeLetter);
+  const pendingApproval = config.requiresApproval;
+
+  const record: StaffRecord = {
+    staffId,
+    fullName,
+    tier: config.tier,
+    email,
+    phone,
+    state,
+    active: !pendingApproval,
+    sourceRow: 0,
+    registrationSource: "self",
+    homeAddress,
+    mouAccepted: input.mouAccepted,
+    declarationAccepted: input.declarationAccepted,
+    ...(pendingApproval ? { pendingApproval: true } : {}),
+    ...(reportsToCode ? { reportsToCode } : {}),
+    ...(reportsToName ? { reportsToName } : {}),
+    ...(input.middleName?.trim() ? { middleName: input.middleName.trim() } : {}),
+    ...(input.socialMediaPlatform?.trim() ? { socialMediaPlatform: input.socialMediaPlatform.trim() } : {}),
+    ...(input.socialMediaUsername?.trim() ? { socialMediaUsername: input.socialMediaUsername.trim() } : {}),
+    ninNumber,
+    ...(input.stateToCoordinate?.trim() ? { stateToCoordinate: input.stateToCoordinate.trim() } : {}),
+    ...(input.roleSpecialization?.trim() ? { roleSpecialization: input.roleSpecialization.trim() } : {}),
+    ...(input.stateOfInfluence?.trim() ? { stateOfInfluence: input.stateOfInfluence.trim() } : {}),
+  };
+
+  await db.collection("staff").doc(staffDocId(staffId)).set(record);
+  await getOrCreateTokenForStaff(staffId);
+
+  const setupToken = generateSetupToken();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(); // 48h to set a password
+  const tokenRecord: StaffSetupTokenRecord = {
+    token: setupToken,
+    staffId,
+    createdAt: new Date().toISOString(),
+    expiresAt,
+    used: false,
+  };
+  await db.collection("staffSetupTokens").doc(setupToken).set(tokenRecord);
+
+  return { ok: true, staffId, setupToken, pendingApproval };
+}
+
+export type ResolveSetupTokenResult =
+  | { ok: true; staffId: string; fullName: string; tier: string; active: boolean }
+  | { ok: false; error: string };
+
+export async function resolveSetupToken(token: string): Promise<ResolveSetupTokenResult> {
+  const db = getAdminDb();
+  const snap = await db.collection("staffSetupTokens").doc(token).get();
+  if (!snap.exists) return { ok: false, error: "This setup link is invalid. Please sign up again." };
+
+  const record = snap.data() as StaffSetupTokenRecord;
+  if (record.used) return { ok: false, error: "This setup link has already been used. Try logging in instead." };
+  if (new Date(record.expiresAt).getTime() < Date.now()) {
+    return { ok: false, error: "This setup link has expired. Please sign up again." };
+  }
+
+  const staffSnap = await db.collection("staff").doc(staffDocId(record.staffId)).get();
+  if (!staffSnap.exists) return { ok: false, error: "We couldn't find your staff record. Please sign up again." };
+
+  const staff = staffSnap.data() as StaffRecord;
+  if (staff.authUid) {
+    return { ok: false, error: "This account already has a password set. Try logging in instead." };
+  }
+
+  return { ok: true, staffId: staff.staffId, fullName: staff.fullName, tier: staff.tier, active: staff.active };
+}
+
+export type SetPasswordResult = { ok: true; email: string } | { ok: false; error: string };
+
+export async function setPasswordForStaff(token: string, password: string): Promise<SetPasswordResult> {
+  if (password.length < 6) return { ok: false, error: "Password must be at least 6 characters." };
+
+  const resolved = await resolveSetupToken(token);
+  if (!resolved.ok) return resolved;
+
+  const db = getAdminDb();
+  const staffRef = db.collection("staff").doc(staffDocId(resolved.staffId));
+  const staffSnap = await staffRef.get();
+  const staff = staffSnap.data() as StaffRecord;
+
+  const auth = getAdminAuth();
+  let uid: string;
+  try {
+    const userRecord = await auth.createUser({ email: staff.email, password, displayName: staff.fullName });
+    uid = userRecord.uid;
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === "auth/email-already-exists") {
+      return { ok: false, error: "That email is already registered. Try logging in instead." };
+    }
+    console.error("setPasswordForStaff: createUser failed:", err);
+    return { ok: false, error: "Couldn't create your account. Please try again." };
+  }
+
+  await auth.setCustomUserClaims(uid, { staffId: staff.staffId, tier: staff.tier });
+  await staffRef.set({ authUid: uid }, { merge: true });
+  await db.collection("staffSetupTokens").doc(token).set({ used: true }, { merge: true });
+
+  return { ok: true, email: staff.email };
+}
+
+===== src/lib/referral.ts =====
+import "server-only";
+import { customAlphabet } from "nanoid";
+import { getAdminDb } from "@/lib/firebase-admin";
+import type { LinkTokenRecord, ReferralLinkSettingsRecord } from "@/lib/types";
+
+// Unambiguous alphabet — no 0/O, 1/I/l confusion — since staff will read tokens aloud.
+const tokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
+export const generateToken = customAlphabet(tokenAlphabet, 8);
+
+/**
+ * Resolves a public /apply/[token] URL segment to the real staffId, entirely
+ * server-side. The browser and URL never see the staffId itself.
+ *
+ * Returns null (never throws) if the token is missing, malformed, or doesn't
+ * resolve — callers should fall back to "unassigned" rather than blocking
+ * the applicant, per the build plan's graceful-fallback requirement.
+ */
+export async function resolveStaffIdFromToken(token: string | undefined | null): Promise<string | null> {
+  if (!token) return null;
+
+  try {
+    const snap = await getAdminDb().collection("linkTokens").doc(token).get();
+    if (!snap.exists) return null;
+
+    const data = snap.data() as LinkTokenRecord;
+    return data.staffId ?? null;
+  } catch (err) {
+    console.error("resolveStaffIdFromToken failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Whether this token has been manually flagged isTest in Firestore — visits
+ * and applications through it still work exactly like any other link, but
+ * get excluded from analytics (KPIs, charts, leaderboard). Useful for a
+ * standing "test" referral link you reuse to check the live form without
+ * polluting real numbers. Never throws — defaults to false.
+ */
+export async function isTokenFlaggedTest(token: string | undefined | null): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const snap = await getAdminDb().collection("linkTokens").doc(token).get();
+    if (!snap.exists) return false;
+    return Boolean((snap.data() as LinkTokenRecord).isTest);
+  } catch (err) {
+    console.error("isTokenFlaggedTest failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Generates a token for a staffId if one doesn't already exist, and returns
+ * it. Tokens are created once and never regenerated for an existing staffId
+ * (per the build plan), so a previously shared link keeps working.
+ */
+export async function getOrCreateTokenForStaff(staffId: string): Promise<string> {
+  const existing = await getAdminDb()
+    .collection("linkTokens")
+    .where("staffId", "==", staffId)
+    .limit(1)
+    .get();
+
+  if (!existing.empty) {
+    return existing.docs[0]!.id;
+  }
+
+  // Collision check is cheap at this volume; retry on the rare clash.
+  let token = generateToken();
+  while ((await getAdminDb().collection("linkTokens").doc(token).get()).exists) {
+    token = generateToken();
+  }
+
+  await getAdminDb()
+    .collection("linkTokens")
+    .doc(token)
+    .set({
+      token,
+      staffId,
+      createdAt: new Date().toISOString(),
+    } satisfies LinkTokenRecord);
+
+  return token;
+}
+
+/**
+ * Whether staff referral links are currently hidden on the dashboard —
+ * toggled from /admin/settings while applications are paused (e.g. awaiting
+ * bank verification training). Defaults to hidden if the settings doc has
+ * never been written, so a fresh deploy of this feature doesn't accidentally
+ * expose links before an admin has made a deliberate choice either way.
+ */
+export async function areReferralLinksHidden(): Promise<boolean> {
+  try {
+    const snap = await getAdminDb().collection("appSettings").doc("referralLinks").get();
+    if (!snap.exists) return true;
+    return (snap.data() as ReferralLinkSettingsRecord).linksHidden;
+  } catch (err) {
+    console.error("areReferralLinksHidden failed:", err);
+    return true;
+  }
+}
+
+===== src/lib/email.ts =====
+import "server-only";
+
+const DEFAULT_FROM = "Globe-Tech SME Grant <grant@globetechimpact.com>";
+
+function firstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] || "there";
+}
+
+/**
+ * Builds the HTML for the "how to open your FirstBank account" email —
+ * mirrors FirstSME_Basic_Account_Guide.docx step for step, with the
+ * applicant's Grant Code (their referrer's staffId) called out prominently
+ * and re-emphasized at Step 6, where it actually gets entered.
+ *
+ * Email-safe HTML only: inline styles, no flexbox/grid, explicit image
+ * dimensions — this needs to render consistently in Gmail/Outlook/Apple Mail.
+ */
+export function buildGrantCodeEmailHtml(opts: {
+  applicantName: string;
+  grantCode: string;
+  appUrl: string;
+  grantCategoryName: string;
+  grantAmount: number;
+  applicationId: string;
+}): string {
+  const { applicantName, grantCode, appUrl, grantCategoryName, grantAmount, applicationId } = opts;
+  const name = firstName(applicantName);
+  const img = (n: number) => `${appUrl}/email/step-${n}.png`;
+  const continuationLink = `${appUrl}/apply/account-details/${applicationId}`;
+
+  const steps: { title: string; body: string; image: number; callout?: string }[] = [
+    { title: "Step 1: Start the application", body: "Click the link below, then click the black \u201cCreate Account\u201d button on the welcome page.", image: 1 },
+    { title: "Step 2: Get ready", body: "On the next screen, click \u201cI'm Ready\u201d to continue.", image: 2 },
+    { title: "Step 3: Enter your phone and email", body: "Type in your phone number and email address. Then type the code shown in the picture (CAPTCHA) into the box, and click \u201cProceed\u201d.", image: 3 },
+    { title: "Step 4: Confirm your email", body: "A 6-digit code will be sent to your email. Open your email, copy the code, type it in, and click \u201cProceed\u201d.", image: 4 },
+    { title: "Step 5: Business information", body: "Type your business Registration Number and click \u201cValidate\u201d. Then fill in the Date of Registration and Jurisdiction of Incorporation.", image: 5 },
+    {
+      title: "Step 6: Choose your branch and enter your Grant Code",
+      body: "Select your Preferred Branch from the list. Then look for the box labelled \u201cAdditional Information\u201d.",
+      image: 6,
+      callout: `You MUST type your Grant Code <strong>${grantCode}</strong> exactly as shown into the "Additional Information" box before clicking Continue. If this code is entered incorrectly, we will not be able to link your account to the grant you applied for.`,
+    },
+    { title: "Step 7: Enter your BVN and NIN", body: "Type in your 11-digit BVN and your 11-digit NIN. (If you don't know your BVN, dial *565*0# on your phone to receive it by SMS.)", image: 7 },
+    { title: "Step 8: Take a selfie", body: "Follow the on-screen instructions for \u201cFace Capture\u201d. Stand in a brightly lit area and look straight at the camera.", image: 8 },
+    { title: "Step 9: Upload your signature and answer a few questions", body: "Upload a photo of your signature. Answer \u201cAre you a Politically Exposed Person?\u201d (choose No, unless it applies to you). Then tick your Business role \u2014 Director, Share Holder, and/or Signatory.", image: 9 },
+    { title: "Step 10: Add a reference and finish", body: "Enter the Name, Email, and Phone Number of someone who already has an account with FirstBank, to serve as your reference. Complete the remaining business documents, then submit to finish.", image: 10 },
+  ];
+
+  const stepsHtml = steps
+    .map(
+      (s) => `
+      <tr>
+        <td style="padding:28px 32px 0;">
+          <p style="margin:0 0 6px;font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:700;color:#0B2A18;">${s.title}</p>
+          <p style="margin:0 0 14px;font-family:Arial,Helvetica,sans-serif;font-size:14.5px;line-height:1.6;color:#4B5B52;">${s.body}</p>
+          ${
+            s.callout
+              ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px;background:#FBF3E2;border:1px solid #E9CE8F;border-radius:8px;"><tr><td style="padding:14px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#0B2A18;">${s.callout}</td></tr></table>`
+              : ""
+          }
+          <img src="${img(s.image)}" width="536" alt="${s.title}" style="display:block;width:100%;max-width:536px;height:auto;border:1px solid #DCE6DE;border-radius:8px;" />
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:#F5F8F5;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F8F5;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;border:1px solid #DCE6DE;">
+            <tr>
+              <td style="background:#0B2A18;padding:28px 32px;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#C8952A;">Globe-Tech SME Grant Program</p>
+                <p style="margin:6px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#FFFFFF;">You're in, ${name}.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 0;">
+                <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#0B2A18;">
+                  Your application for the <strong>${grantCategoryName}</strong> (₦${grantAmount.toLocaleString()})
+                  has been received. Recipients are selected by random draw from eligible applicants every
+                  quarter — there's nothing more to do on that front. In the meantime, the next step is opening
+                  your FirstSME Basic account with FirstBank \u2014 it only takes a few minutes on your phone or
+                  computer. Follow the steps below.
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;background:#0E7A3A;border-radius:10px;">
+                  <tr>
+                    <td style="padding:18px 20px;text-align:center;">
+                      <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#D7E4D9;">Your Grant Code</p>
+                      <p style="margin:4px 0 0;font-family:'Courier New',monospace;font-size:26px;font-weight:700;letter-spacing:1px;color:#FFFFFF;">${grantCode}</p>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#4B5B52;">
+                  You'll enter this in the <strong>Additional Information</strong> box at Step 6 below \u2014 it's what
+                  links your new account to your grant application.
+                </p>
+              </td>
+            </tr>
+            ${stepsHtml}
+            <tr>
+              <td style="padding:28px 32px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0D2C1A;border:1px solid #1E4A2E;border-radius:10px;">
+                  <tr>
+                    <td style="padding:18px 20px;">
+                      <p style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#FFFFFF;">One more step — later</p>
+                      <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#D7E4D9;">
+                        Once you've finished opening your FirstBank account above, come back to the link below
+                        <strong>any time after 48 hours</strong> from now to submit your new account details \u2014
+                        that's the final step to complete your application. Bookmark this link or keep this email:
+                      </p>
+                      <a href="${continuationLink}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:14px;padding:11px 18px;border-radius:8px;text-decoration:none;">
+                        Submit my account details \u2192
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 32px;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14.5px;line-height:1.6;color:#0B2A18;">
+                  That's it \u2014 you're done! If you get stuck at any step, just reply to this email and we'll help you through it.
+                </p>
+                <p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.6;color:#7FA688;">
+                  Globe-Tech SME Grant &amp; Business Support Program
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+export async function sendGrantCodeEmail(opts: {
+  to: string;
+  applicantName: string;
+  grantCode: string;
+  grantCategoryName: string;
+  grantAmount: number;
+  applicationId: string;
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not set. Add it in Vercel's environment variables.");
+  }
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) {
+    throw new Error("NEXT_PUBLIC_APP_URL is not set — needed to build the image links in the email.");
+  }
+  const from = process.env.GRANT_EMAIL_FROM || DEFAULT_FROM;
+
+  const html = buildGrantCodeEmailHtml({
+    applicantName: opts.applicantName,
+    grantCode: opts.grantCode,
+    appUrl,
+    grantCategoryName: opts.grantCategoryName,
+    grantAmount: opts.grantAmount,
+    applicationId: opts.applicationId,
+  });
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: opts.to,
+      subject: "Your Grant Code — next step: open your FirstBank account",
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Resend API error: ${res.status} ${await res.text()}`);
+  }
+}
+
+===== src/app/apply/[token]/page.tsx =====
+import { resolveStaffIdFromToken } from "@/lib/referral";
+import ApplicationForm from "@/components/ApplicationForm";
+
+export default async function ApplyPage({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}) {
+  const { token } = await params;
+
+  // Resolved entirely server-side. If it doesn't resolve, we still let the
+  // applicant through and tag the application "unassigned" — per the build
+  // plan's graceful-fallback requirement, a bad or missing link never blocks
+  // someone from applying.
+  const staffId = await resolveStaffIdFromToken(token);
+
+  return <ApplicationForm token={token} referralResolved={Boolean(staffId)} />;
+}
+
+===== src/components/ApplicationForm.tsx =====
+"use client";
+
+import { useEffect, useRef, useState, type KeyboardEvent } from "react";
+import Image from "next/image";
+import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
+import { GRANT_CATEGORIES, DRAW_INFO, type GrantTier } from "@/lib/grantCategories";
+import { getGrantQuestions, DECLARATION_TEXT, type GrantQuestion } from "@/lib/grantQuestions";
+import type { GrantCategoryId } from "@/lib/types";
+import styles from "@/components/ChatApplicationForm.module.css";
+
+type FieldValue = string | number | boolean | null;
+type Answers = Record<string, FieldValue>;
+
+interface TranscriptItem {
+  who: "bot" | "user";
+  text: string;
+}
+
+type Stage = "category" | "questions" | "summary" | "submitting" | "done";
+
+function required(q: GrantQuestion): boolean {
+  return q.required ?? true;
+}
+
+function fname(answers: Answers): string {
+  const v = answers.applicantName;
+  return typeof v === "string" && v.trim() ? v.trim().split(/\s+/)[0]! : "there";
+}
+
+interface Props {
+  token: string;
+  referralResolved: boolean;
+}
+
+interface SavedDraft {
+  categoryId: GrantCategoryId;
+  answers: Answers;
+  qIndex: number;
+  transcript: TranscriptItem[];
+  stage: Stage;
+  savedAt: number;
+}
+
+export default function ApplicationForm({ token }: Props) {
+  const [stage, setStage] = useState<Stage>("category");
+  const [categoryId, setCategoryId] = useState<GrantCategoryId | null>(null);
+  const [questions, setQuestions] = useState<GrantQuestion[]>([]);
+  const [answers, setAnswers] = useState<Answers>({});
+  const [qIndex, setQIndex] = useState(0);
+  const [transcript, setTranscript] = useState<TranscriptItem[]>([]);
+  const [typing, setTyping] = useState(false);
+  const [honeypot, setHoneypot] = useState("");
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [grantCode, setGrantCode] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [draft, setDraft] = useState<SavedDraft | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const draftKey = `gt_application_draft_${token}`;
+
+  useEffect(() => {
+    recordVisit(token).catch(() => {
+      /* non-fatal — the token in the URL still works at submit time */
+    });
+  }, [token]);
+
+  // Look for a saved draft on this device so the applicant can pick up where
+  // they left off, even after closing the tab or reloading.
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(draftKey);
+      if (raw) {
+        const parsed: SavedDraft = JSON.parse(raw);
+        if (parsed && parsed.categoryId && parsed.transcript?.length > 0 && parsed.stage !== "done") {
+          setDraft(parsed);
+        }
+      }
+    } catch {
+      /* corrupt or unavailable storage — just start fresh */
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Autosave on every change. Nothing to persist before a category's picked;
+  // clear the draft entirely once actually submitted.
+  useEffect(() => {
+    if (stage === "category" && !categoryId) return;
+    try {
+      if (stage === "done") {
+        window.localStorage.removeItem(draftKey);
+      } else if (categoryId) {
+        const payload: SavedDraft = { categoryId, answers, qIndex, transcript, stage, savedAt: Date.now() };
+        window.localStorage.setItem(draftKey, JSON.stringify(payload));
+      }
+    } catch {
+      /* localStorage may be unavailable — the session still works, it just won't resume after reload */
+    }
+  }, [categoryId, answers, qIndex, transcript, stage, draftKey]);
+
+  useEffect(() => {
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+  }, [transcript, typing, qIndex, stage]);
+
+  const category = categoryId ? GRANT_CATEGORIES.find((c) => c.id === categoryId)! : null;
+
+  function resumeDraft() {
+    if (!draft) return;
+    const cat = GRANT_CATEGORIES.find((c) => c.id === draft.categoryId);
+    if (!cat) return;
+    setCategoryId(draft.categoryId);
+    setQuestions(getGrantQuestions(cat.tier));
+    setAnswers(draft.answers);
+    setQIndex(draft.qIndex);
+    setTranscript(draft.transcript);
+    setStage(draft.stage);
+    setDraft(null);
+  }
+
+  function startFresh() {
+    try {
+      window.localStorage.removeItem(draftKey);
+    } catch {
+      /* ignore */
+    }
+    setDraft(null);
+  }
+
+  function selectCategory(id: GrantCategoryId, tier: GrantTier) {
+    const qs = getGrantQuestions(tier);
+    setCategoryId(id);
+    setQuestions(qs);
+    setStage("questions");
+    setQIndex(0);
+    askQuestion(0, qs);
+  }
+
+  function askQuestion(idx: number, qs: GrantQuestion[]) {
+    const q = qs[idx];
+    setTyping(true);
+    setTimeout(() => {
+      setTyping(false);
+      setTranscript((t) => [...t, { who: "bot", text: q.question }]);
+    }, 450 + Math.random() * 300);
+  }
+
+  function submitAnswer(id: string, value: FieldValue, display: string) {
+    setAnswers((a) => ({ ...a, [id]: value }));
+    setTranscript((t) => [...t, { who: "user", text: display }]);
+    const nextIndex = qIndex + 1;
+    setQIndex(nextIndex);
+
+    if (nextIndex >= questions.length) {
+      setTyping(true);
+      setTimeout(() => {
+        setTyping(false);
+        setStage("summary");
+        setTranscript((t) => [
+          ...t,
+          { who: "bot", text: `That's everything, ${fname(answers)}. Take a look below, then send it in when you're ready.` },
+        ]);
+      }, 450 + Math.random() * 300);
+    } else {
+      askQuestion(nextIndex, questions);
+    }
+  }
+
+  function goBack() {
+    if (stage === "summary") {
+      setTranscript((t) => t.slice(0, -1));
+      setStage("questions");
+      return;
+    }
+    if (stage === "questions") {
+      if (qIndex === 0) {
+        setStage("category");
+        setTranscript([]);
+        setQIndex(0);
+        setCategoryId(null);
+        setAnswers({});
+        return;
+      }
+      setTranscript((t) => t.slice(0, -2));
+      setQIndex((i) => i - 1);
+    }
+  }
+
+  async function finalSubmit() {
+    if (!category) return;
+    setStage("submitting");
+    setSubmitError(null);
+
+    const res = await submitApplication({
+      token,
+      honeypot,
+      grantCategory: category.id,
+      grantAmount: category.amount,
+      applicantName: typeof answers.applicantName === "string" ? answers.applicantName : "",
+      phone: typeof answers.phone === "string" ? answers.phone : "",
+      email: typeof answers.email === "string" ? answers.email : "",
+      stateOfResidence: typeof answers.stateOfResidence === "string" ? answers.stateOfResidence : "",
+      businessName: typeof answers.businessName === "string" ? answers.businessName : "",
+      grantNeedExplanation: typeof answers.grantNeedExplanation === "string" ? answers.grantNeedExplanation : "",
+      businessType: typeof answers.businessType === "string" ? answers.businessType : undefined,
+      businessLocation: typeof answers.businessLocation === "string" ? answers.businessLocation : undefined,
+      monthlyProductCost: typeof answers.monthlyProductCost === "number" ? answers.monthlyProductCost : undefined,
+      cacNumber: typeof answers.cacNumber === "string" ? answers.cacNumber : undefined,
+      businessDescription: typeof answers.businessDescription === "string" ? answers.businessDescription : undefined,
+      declarationAgreed: answers.declarationAgreed === "accepted",
+    });
+
+    if (!res.ok) {
+      setSubmitError(res.error ?? "Something went wrong. Please try again.");
+      setStage("summary");
+      return;
+    }
+    setGrantCode(res.grantCode ?? null);
+    setStage("done");
+  }
+
+  async function copyCode() {
+    if (!grantCode) return;
+    try {
+      await navigator.clipboard.writeText(grantCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard API can fail silently; the code is still visible on screen */
+    }
+  }
+
+  const progressPct =
+    stage === "category"
+      ? 0
+      : stage === "questions"
+        ? 5 + (qIndex / Math.max(questions.length, 1)) * 89
+        : stage === "summary" || stage === "submitting"
+          ? 96
+          : 100;
+
+  const headerLabel = stage === "category" ? "Choose a grant" : category ? category.name : "Application";
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.app}>
+        <header className={styles.header}>
+          <button
+            className={styles.backBtn}
+            onClick={goBack}
+            disabled={stage === "category" || stage === "done" || stage === "submitting"}
+            title="Back"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M10 3L5 8l5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+          <div className={styles.mark}>
+            <Image src="/logo.png" alt="Globe-Tech" width={34} height={34} className={styles.markImg} priority />
+          </div>
+          <div className={styles.headText}>
+            <div className={styles.org}>Globe-Tech · SME Grant Program</div>
+            <div className={styles.roleLabel}>{headerLabel}</div>
+          </div>
+        </header>
+        <div style={{ padding: "0 20px" }}>
+          <div className={styles.progressTrack}>
+            <div className={styles.progressFill} style={{ width: `${progressPct}%` }} />
+          </div>
+        </div>
+
+        <div className={styles.thread}>
+          {stage === "category" && draft && (
+            <div className={styles.welcomeHero}>
+              <h1>Welcome back — we can continue from where you stopped.</h1>
+              <p>Your progress on this device was saved automatically.</p>
+            </div>
+          )}
+
+          {stage === "category" && !draft && (
+            <>
+              <div className={styles.welcomeHero}>
+                <h1>Which grant fits your business?</h1>
+                <p>
+                  Read through the options below, then pick the one that matches your business.
+                  We&rsquo;ll only ask what&rsquo;s relevant to your choice — about 10 quick
+                  questions either way.
+                </p>
+              </div>
+
+              <div className={styles.categoryGrid}>
+                {GRANT_CATEGORIES.map((c) => (
+                  <button key={c.id} className={styles.categoryCard} onClick={() => selectCategory(c.id, c.tier)}>
+                    <div>
+                      <div style={{ fontFamily: "Fraunces, serif", fontWeight: 500, fontSize: 16, color: "var(--text)" }}>
+                        {c.name}
+                      </div>
+                      <div style={{ marginTop: 3, fontSize: 12.5, color: "var(--muted)", lineHeight: 1.4 }}>{c.coversWho}</div>
+                    </div>
+                    <div style={{ flexShrink: 0, fontFamily: "IBM Plex Mono, monospace", fontWeight: 600, fontSize: 15, color: "var(--gold)", whiteSpace: "nowrap" }}>
+                      ₦{c.amount.toLocaleString()}
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              <div className={styles.drawInfo}>
+                <p className={styles.drawTitle}>How the draw works</p>
+                <ul>
+                  {DRAW_INFO.map((line, i) => (
+                    <li key={i}>{line}</li>
+                  ))}
+                </ul>
+              </div>
+            </>
+          )}
+
+          {stage !== "category" &&
+            transcript.map((item, i) => (
+              <div key={i} className={`${styles.row} ${item.who === "bot" ? styles.rowBot : styles.rowUser}`}>
+                {item.who === "bot" && <div className={styles.avatar}>GT</div>}
+                <div className={`${styles.bubble} ${item.who === "bot" ? styles.botBubble : styles.userBubble}`}>{item.text}</div>
+                {item.who === "user" && <div className={`${styles.avatar} ${styles.userAvatar}`}>{fname(answers).charAt(0).toUpperCase()}</div>}
+              </div>
+            ))}
+
+          {typing && (
+            <div className={`${styles.row} ${styles.rowBot}`}>
+              <div className={styles.avatar}>GT</div>
+              <div className={`${styles.bubble} ${styles.botBubble} ${styles.typingBubble}`}>
+                <div className={styles.dot} />
+                <div className={styles.dot} />
+                <div className={styles.dot} />
+              </div>
+            </div>
+          )}
+
+          {(stage === "summary" || stage === "submitting") && !typing && category && (
+            <div className={`${styles.row} ${styles.rowBot}`}>
+              <div className={styles.avatar}>GT</div>
+              <div className={styles.summaryCard}>
+                <span className={styles.roleTag}>
+                  {category.name} · ₦{category.amount.toLocaleString()}
+                </span>
+                {questions
+                  .filter((q) => q.type !== "checkbox")
+                  .map((q) => (
+                    <div key={q.id} className={styles.sumRow}>
+                      <div className={styles.sumK}>{q.label}</div>
+                      <div className={styles.sumV}>
+                        {q.type === "number"
+                          ? answers[q.id]
+                            ? `₦${Number(answers[q.id]).toLocaleString()}`
+                            : "—"
+                          : (answers[q.id] as string) || "—"}
+                      </div>
+                    </div>
+                  ))}
+                <div className={styles.sumRow}>
+                  <div className={styles.sumK}>Declaration</div>
+                  <div className={styles.sumV}>{answers.declarationAgreed === "accepted" ? "Agreed ✓" : "Not yet"}</div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {stage === "done" && category && (
+            <div className={styles.doneScreen}>
+              <div className={styles.doneBadge}>✓</div>
+              <h2>You&rsquo;re in, {fname(answers)}.</h2>
+              <p>
+                Your application for the <strong>{category.name}</strong> (₦{category.amount.toLocaleString()}) has
+                been received. Recipients are chosen by random draw each quarter, so there&rsquo;s nothing more to
+                do on that front. Check your email for the next step — opening your FirstBank account — we&rsquo;ve
+                sent a full walkthrough to <strong>{answers.email as string}</strong>. Enter the code below in the{" "}
+                <strong>Additional Information</strong> box on FirstBank&rsquo;s account-opening form.
+              </p>
+              <div className={styles.codeBlock}>
+                <p className={styles.label}>Your Grant Code</p>
+                <p className={styles.code}>{grantCode}</p>
+              </div>
+              <div className={styles.rowActions} style={{ maxWidth: 320, margin: "20px auto 0" }}>
+                <button className={`${styles.btn} ${styles.btnGhost}`} style={{ flex: 1 }} onClick={copyCode}>
+                  {copied ? "Copied ✓" : "Copy code"}
+                </button>
+              </div>
+            </div>
+          )}
+          <div ref={bottomRef} />
+        </div>
+
+        <div className={styles.composer}>
+          {stage === "category" && draft && (
+            <div className={styles.composerInner}>
+              <div className={styles.rowActions}>
+                <button className={`${styles.btn} ${styles.btnGhost}`} onClick={startFresh}>
+                  Start over
+                </button>
+                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={resumeDraft}>
+                  Continue →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {stage === "questions" && !typing && questions[qIndex] && (
+            <Composer key={qIndex} q={questions[qIndex]!} onAnswer={submitAnswer} />
+          )}
+
+          {stage === "summary" && !typing && (
+            <div className={styles.composerInner}>
+              {submitError && (
+                <p className={styles.errorText} style={{ marginBottom: 10 }}>
+                  {submitError}
+                </p>
+              )}
+              <div className={styles.rowActions}>
+                <button
+                  className={`${styles.btn} ${styles.btnGhost}`}
+                  onClick={() => {
+                    setQIndex(0);
+                    setStage("questions");
+                    askQuestion(0, questions);
+                  }}
+                >
+                  ← Edit answers
+                </button>
+                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={finalSubmit}>
+                  Submit application →
+                </button>
+              </div>
+            </div>
+          )}
+
+          {stage === "submitting" && (
+            <div className={styles.composerInner}>
+              <p className={styles.hint}>Submitting your application…</p>
+            </div>
+          )}
+        </div>
+
+        {/* Honeypot — visually hidden, never in the tab order, present throughout */}
+        <div aria-hidden="true" style={{ position: "absolute", left: -9999, width: 1, height: 1, overflow: "hidden" }}>
+          <label htmlFor="website">Website</label>
+          <input
+            id="website"
+            name="website"
+            tabIndex={-1}
+            autoComplete="off"
+            value={honeypot}
+            onChange={(e) => setHoneypot(e.target.value)}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Composer({ q, onAnswer }: { q: GrantQuestion; onAnswer: (id: string, value: FieldValue, display: string) => void }) {
+  const isRequired = required(q);
+  const [value, setValue] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [declarationChecked, setDeclarationChecked] = useState(false);
+  const inputRef = useRef<HTMLInputElement & HTMLTextAreaElement & HTMLSelectElement>(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  function attemptText(v: string) {
+    const str = v.trim();
+    if (isRequired && !str) {
+      setError("This one's needed before we move on.");
+      return;
+    }
+    if (q.type === "email" && str && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(str)) {
+      setError("That email doesn't look quite right — mind checking it?");
+      return;
+    }
+    if (q.type === "tel" && str) {
+      const digits = str.replace(/\D/g, "");
+      if (digits.length !== 11) {
+        setError("Enter exactly 11 digits.");
+        return;
+      }
+      onAnswer(q.id, digits, digits);
+      return;
+    }
+    if (q.type === "number") {
+      const n = Number(str);
+      if (isRequired && (!n || n <= 0)) {
+        setError("Enter an amount greater than zero.");
+        return;
+      }
+      onAnswer(q.id, n, n ? `₦${n.toLocaleString()}` : "—");
+      return;
+    }
+    onAnswer(q.id, str || null, str || "—");
+  }
+
+  function handleKeyDown(e: KeyboardEvent) {
+    if (e.key === "Enter" && q.type !== "textarea") {
+      e.preventDefault();
+      attemptText(value);
+    }
+  }
+
+  if (q.type === "select") {
+    return (
+      <div className={styles.composerInner}>
+        <select ref={inputRef} className={styles.fieldSelect} value={value} onChange={(e) => setValue(e.target.value)}>
+          <option value="" disabled>
+            Choose one…
+          </option>
+          {(q.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o}
+            </option>
+          ))}
+        </select>
+        <div className={styles.rowActions}>
+          <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => attemptText(value)}>
+            Continue →
+          </button>
+        </div>
+        {error && <p className={styles.errorText}>{error}</p>}
+      </div>
+    );
+  }
+
+  if (q.type === "checkbox") {
+    return (
+      <div className={styles.composerInner}>
+        <label className={styles.checkline}>
+          <input type="checkbox" checked={declarationChecked} onChange={(e) => setDeclarationChecked(e.target.checked)} />
+          <span>{DECLARATION_TEXT}</span>
+        </label>
+        <div className={styles.rowActions}>
+          <button
+            className={`${styles.btn} ${styles.btnPrimary}`}
+            disabled={!declarationChecked}
+            onClick={() => onAnswer(q.id, "accepted", "✓ Agreed")}
+          >
+            I agree, submit →
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // text / email / tel / number / textarea
+  return (
+    <div className={styles.composerInner}>
+      {q.type === "textarea" ? (
+        <textarea ref={inputRef} className={styles.field} placeholder={q.placeholder} value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={handleKeyDown} />
+      ) : (
+        <input
+          ref={inputRef}
+          className={styles.field}
+          type={q.type === "number" ? "number" : q.type === "tel" ? "tel" : q.type}
+          inputMode={q.type === "tel" ? "numeric" : undefined}
+          placeholder={q.placeholder}
+          value={value}
+          onChange={(e) => setValue(q.type === "tel" ? e.target.value.replace(/\D/g, "").slice(0, 11) : e.target.value)}
+          onKeyDown={handleKeyDown}
+        />
+      )}
+      <div className={styles.rowActions}>
+        <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={() => attemptText(value)}>
+          Continue →
+        </button>
+      </div>
+      {error && <p className={styles.errorText}>{error}</p>}
+    </div>
+  );
+}
+
+===== src/app/apply/account-details/[applicationId]/page.tsx =====
+"use client";
+
+import { useEffect, useState, use as usePromise } from "react";
+import Image from "next/image";
+import { getContinuationStatus, submitAccountDetails, type ContinuationStatus } from "@/app/apply/account-details/actions";
+import styles from "@/components/ChatApplicationForm.module.css";
+
+function timeRemaining(unlocksAt: string): string {
+  const ms = new Date(unlocksAt).getTime() - Date.now();
+  if (ms <= 0) return "any moment now";
+  const hours = Math.floor(ms / (1000 * 60 * 60));
+  const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+  if (hours >= 1) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+export default function AccountDetailsPage({ params }: { params: Promise<{ applicationId: string }> }) {
+  const { applicationId } = usePromise(params);
+  return <AccountDetails applicationId={applicationId} />;
+}
+
+function AccountDetails({ applicationId }: { applicationId: string }) {
+  const [status, setStatus] = useState<ContinuationStatus | null>(null);
+  const [accountNumber, setAccountNumber] = useState("");
+  const [accountName, setAccountName] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [submitted, setSubmitted] = useState(false);
+
+  useEffect(() => {
+    getContinuationStatus(applicationId).then(setStatus);
+  }, [applicationId]);
+
+  async function handleSubmit() {
+    if (!accountNumber.trim() || !accountName.trim()) {
+      setError("Enter both your account number and account name.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    const res = await submitAccountDetails(applicationId, accountNumber, accountName);
+    setSubmitting(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    setSubmitted(true);
+  }
+
+  return (
+    <div className={styles.page}>
+      <div className={styles.app}>
+        <header className={styles.header}>
+          <div style={{ width: 30 }} />
+          <div className={styles.mark}>
+            <Image src="/logo.png" alt="Globe-Tech" width={34} height={34} className={styles.markImg} priority />
+          </div>
+          <div className={styles.headText}>
+            <div className={styles.org}>Globe-Tech · SME Grant Program</div>
+            <div className={styles.roleLabel}>FirstBank Account Details</div>
+          </div>
+        </header>
+
+        <div className={styles.thread} style={{ paddingTop: 20 }}>
+          {!status && <p style={{ color: "var(--muted)", textAlign: "center", padding: "40px 0" }}>Loading…</p>}
+
+          {status && !status.ok && (
+            <div className={styles.statusCard}>
+              <p className={styles.statusLabel}>Not found</p>
+              <h2>Hmm, that link isn&rsquo;t working</h2>
+              <p>{status.error}</p>
+            </div>
+          )}
+
+          {status && status.ok && (
+            <>
+              <div className={styles.welcomeHero}>
+                <h1>Hi {status.applicantName.split(/\s+/)[0]},</h1>
+                <p>
+                  {status.businessName} · {status.grantCategoryName}
+                </p>
+              </div>
+
+              {!status.unlocked && (
+                <div className={styles.statusCard}>
+                  <p className={styles.statusLabel}>Phase 2 · Pending</p>
+                  <h2>Available in {timeRemaining(status.unlocksAt)}</h2>
+                  <p>
+                    First, finish opening your FirstSME Basic account with FirstBank if you
+                    haven&rsquo;t already. Once your 48-hour waiting period is up, come back to
+                    this exact link to submit your account details. Bookmark it or keep the email
+                    handy.
+                  </p>
+                </div>
+              )}
+
+              {status.unlocked && !status.accountDetailsSubmitted && !submitted && (
+                <>
+                  <div className={styles.warningBox}>
+                    <b>Warning:</b> You must provide the FirstBank SME account issued to you
+                    during the account opening process. Submitting any account other than your
+                    official FirstBank SME account will result in automatic disqualification from
+                    the grant program.
+                  </div>
+                  <div className={styles.composerInner}>
+                    <label style={{ display: "block", marginBottom: 12 }}>
+                      <span style={{ display: "block", marginBottom: 6, fontSize: 13, color: "var(--muted)" }}>
+                        FirstBank account number
+                      </span>
+                      <input
+                        className={styles.field}
+                        value={accountNumber}
+                        onChange={(e) => setAccountNumber(e.target.value.replace(/\D/g, "").slice(0, 10))}
+                        placeholder="0123456789"
+                      />
+                    </label>
+                    <label style={{ display: "block", marginBottom: 4 }}>
+                      <span style={{ display: "block", marginBottom: 6, fontSize: 13, color: "var(--muted)" }}>
+                        Account name (exactly as shown on your FirstBank account)
+                      </span>
+                      <input className={styles.field} value={accountName} onChange={(e) => setAccountName(e.target.value)} />
+                    </label>
+                    <div className={styles.rowActions}>
+                      <button className={`${styles.btn} ${styles.btnPrimary}`} disabled={submitting} onClick={handleSubmit}>
+                        {submitting ? "Submitting…" : "Submit account details →"}
+                      </button>
+                    </div>
+                    {error && <p className={styles.errorText}>{error}</p>}
+                  </div>
+                </>
+              )}
+
+              {(status.accountDetailsSubmitted || submitted) && (
+                <div className={styles.statusCard}>
+                  <p className={styles.statusLabel}>{submitted ? "Awaiting Verification" : status.verificationLabel}</p>
+                  <h2>
+                    {submitted
+                      ? "Got it — thanks!"
+                      : status.verificationLabel === "Completed"
+                        ? "You're fully verified 🎉"
+                        : "Still checking"}
+                  </h2>
+                  <p>
+                    {submitted
+                      ? "We've saved your account details. We'll verify them against FirstBank's records and let you know."
+                      : status.verificationDescription}
+                  </p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== src/app/apply/account-details/actions.ts =====
+"use server";
+
+import { getAdminDb } from "@/lib/firebase-admin";
+import { isPhase2Unlocked, phase2UnlocksAt, PHASE2_STATUS_INFO } from "@/lib/phase2Verification";
+import { getGrantCategory } from "@/lib/grantCategories";
+import type { ApplicationRecord } from "@/lib/types";
+
+export type ContinuationStatus =
+  | {
+      ok: true;
+      applicantName: string;
+      businessName: string;
+      grantCategoryName: string;
+      unlocked: boolean;
+      unlocksAt: string;
+      accountDetailsSubmitted: boolean;
+      verificationLabel?: string;
+      verificationDescription?: string;
+    }
+  | { ok: false; error: string };
+
+export async function getContinuationStatus(applicationId: string): Promise<ContinuationStatus> {
+  try {
+    const snap = await getAdminDb().collection("applications").doc(applicationId).get();
+    if (!snap.exists) {
+      return { ok: false, error: "We couldn't find that application. Double-check the link from your email." };
+    }
+    const app = snap.data() as ApplicationRecord;
+    const unlocked = isPhase2Unlocked(app.phase1SubmittedAt);
+    const info = app.phase2VerificationStatus ? PHASE2_STATUS_INFO[app.phase2VerificationStatus] : undefined;
+
+    return {
+      ok: true,
+      applicantName: app.applicantName,
+      businessName: app.businessName,
+      grantCategoryName: getGrantCategory(app.grantCategory).name,
+      unlocked,
+      unlocksAt: phase2UnlocksAt(app.phase1SubmittedAt).toISOString(),
+      accountDetailsSubmitted: Boolean(app.accountDetailsSubmittedAt),
+      verificationLabel: info?.label,
+      verificationDescription: info?.description,
+    };
+  } catch (err) {
+    console.error("getContinuationStatus failed:", err);
+    return { ok: false, error: "Something went wrong loading your application. Please try again." };
+  }
+}
+
+export async function submitAccountDetails(
+  applicationId: string,
+  accountNumber: string,
+  accountName: string
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const num = accountNumber.trim();
+  const name = accountName.trim();
+  if (!num || !name) return { ok: false, error: "Enter both your account number and account name." };
+
+  try {
+    const ref = getAdminDb().collection("applications").doc(applicationId);
+    const snap = await ref.get();
+    if (!snap.exists) return { ok: false, error: "We couldn't find that application." };
+    const app = snap.data() as ApplicationRecord;
+
+    if (!isPhase2Unlocked(app.phase1SubmittedAt)) {
+      return { ok: false, error: "Phase 2 isn't unlocked yet — check back after the 48-hour window." };
+    }
+    if (app.accountDetailsSubmittedAt) {
+      return { ok: false, error: "You've already submitted your account details." };
+    }
+
+    await ref.update({
+      bankAccountNumber: num,
+      bankAccountName: name,
+      accountDetailsSubmittedAt: new Date().toISOString(),
+      phase2VerificationStatus: "awaiting_verification",
+    });
+    return { ok: true };
+  } catch (err) {
+    console.error("submitAccountDetails failed:", err);
+    return { ok: false, error: "Something went wrong submitting your details. Please try again." };
+  }
+}
+
+===== src/lib/staffAuth.ts =====
+import "server-only";
+import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
+import { staffDocId } from "@/lib/staffId";
+import type { StaffRecord } from "@/lib/types";
+
+/**
+ * Resolves a login identifier (either an email address or a Staff ID) to
+ * the email address Firebase Auth needs to sign in with. Firebase Auth has
+ * no native "sign in by arbitrary ID" — Staff IDs are looked up server-side
+ * against the synced staff record instead.
+ */
+export async function resolveLoginEmail(
+  identifier: string
+): Promise<{ ok: true; email: string } | { ok: false; error: string }> {
+  const trimmed = identifier.trim();
+  if (!trimmed) return { ok: false, error: "Enter your email or Staff ID." };
+
+  // Looks like an email — use it directly, no Firestore lookup needed.
+  if (trimmed.includes("@")) {
+    return { ok: true, email: trimmed.toLowerCase() };
+  }
+
+  // Otherwise treat it as a Staff ID.
+  const snap = await getAdminDb().collection("staff").doc(staffDocId(trimmed)).get();
+  if (!snap.exists) {
+    return { ok: false, error: "No staff record found for that Staff ID." };
+  }
+  const staff = snap.data() as StaffRecord;
+  if (!staff.authUid) {
+    return { ok: false, error: "This Staff ID doesn't have an account yet — sign up first." };
+  }
+  if (!staff.email) {
+    return {
+      ok: false,
+      error: "No email is on file for this Staff ID. Contact your admin.",
+    };
+  }
+  return { ok: true, email: staff.email };
+}
+
+export interface RegisterStaffInput {
+  staffId: string;
+  email: string;
+  password: string;
+}
+
+export type RegisterStaffResult =
+  | { ok: true; email: string }
+  | { ok: false; error: string };
+
+/**
+ * Self-registration: verifies the Staff ID exists in the synced staff
+ * collection and (if an email is already on file for it) that the email
+ * matches, then creates the Firebase Auth account and tags it with the
+ * staffId as a custom claim so downstream code can trust request.auth
+ * without needing a client-supplied staffId.
+ */
+export async function registerStaffAccount(
+  input: RegisterStaffInput
+): Promise<RegisterStaffResult> {
+  const staffId = input.staffId.trim();
+  const email = input.email.trim().toLowerCase();
+  const { password } = input;
+
+  if (!staffId || !email || !password) {
+    return { ok: false, error: "Fill in your Staff ID, email, and password." };
+  }
+  if (password.length < 6) {
+    return { ok: false, error: "Password must be at least 6 characters." };
+  }
+
+  const db = getAdminDb();
+  const staffRef = db.collection("staff").doc(staffDocId(staffId));
+  const staffSnap = await staffRef.get();
+  if (!staffSnap.exists) {
+    return {
+      ok: false,
+      error: "No staff record found for that Staff ID. Check it's typed exactly as given to you.",
+    };
+  }
+
+  const staff = staffSnap.data() as StaffRecord;
+  if (staff.authUid) {
+    return {
+      ok: false,
+      error: "This Staff ID already has an account. Try logging in, or use Forgot password.",
+    };
+  }
+  if (staff.email && staff.email.trim().toLowerCase() !== email) {
+    return {
+      ok: false,
+      error: "That email doesn't match our records for this Staff ID. Contact your admin if this seems wrong.",
+    };
+  }
+
+  const auth = getAdminAuth();
+  let uid: string;
+  try {
+    const userRecord = await auth.createUser({ email, password, displayName: staff.fullName });
+    uid = userRecord.uid;
+  } catch (err) {
+    const code = (err as { code?: string })?.code;
+    if (code === "auth/email-already-exists") {
+      return { ok: false, error: "That email is already registered. Try logging in instead." };
+    }
+    console.error("createUser failed:", err);
+    return { ok: false, error: "Couldn't create your account. Please try again." };
+  }
+
+  await auth.setCustomUserClaims(uid, { staffId, tier: staff.tier });
+  await staffRef.set({ authUid: uid, email }, { merge: true });
+
+  return { ok: true, email };
+}
+
+export interface StaffSession {
+  uid: string;
+  staffId: string;
+  staff: StaffRecord;
+}
+
+/**
+ * Verifies a Firebase ID token (passed up from the client after
+ * auth.currentUser.getIdToken()) and returns the caller's staffId — trusted
+ * because it comes from the verified token's custom claims, not anything
+ * the client asserted directly — plus their current staff record.
+ */
+export async function verifyStaffSession(
+  idToken: string
+): Promise<{ ok: true; session: StaffSession } | { ok: false; error: string }> {
+  try {
+    const decoded = await getAdminAuth().verifyIdToken(idToken);
+    const staffId = decoded.staffId as string | undefined;
+    if (!staffId) {
+      return { ok: false, error: "This account isn't linked to a Staff ID." };
+    }
+    const snap = await getAdminDb().collection("staff").doc(staffDocId(staffId)).get();
+    if (!snap.exists) {
+      return { ok: false, error: "Staff record not found." };
+    }
+    return { ok: true, session: { uid: decoded.uid, staffId, staff: snap.data() as StaffRecord } };
+  } catch (err) {
+    console.error("verifyStaffSession failed:", err);
+    return { ok: false, error: "Your session has expired. Please sign in again." };
+  }
+}
+
+===== src/lib/staffCodeMigration.ts =====
+import { getAdminDb } from "@/lib/firebase-admin";
+import { staffDocId } from "@/lib/staffId";
+import { sendBulkStaffCodeNotifications } from "@/lib/staffCodeNotification";
+import type { StaffRecord } from "@/lib/types";
+
+const CORRECT_SUFFIX = "115545925";
+const CORRECT_STAFF_CODE_SUFFIX = `/${CORRECT_SUFFIX}`;
+
+export interface MigrationResult {
+  success: boolean;
+  totalRecords: number;
+  correctedCount: number;
+  referralUpdatesCount: number;
+  corrections: Array<{
+    originalStaffId: string;
+    newStaffId: string;
+    userName: string;
+    affectedReferrals: number;
+  }>;
+  errors: string[];
+  emailsSent?: number;
+  emailsFailed?: number;
+  emailErrors?: Array<{ email: string; error: string }>;
+}
+
+/**
+ * Validates if a staff code has the correct fixed suffix
+ */
+export function hasCorrectSuffix(staffId: string): boolean {
+  return staffId.endsWith(CORRECT_STAFF_CODE_SUFFIX);
+}
+
+/**
+ * Extracts the prefix (everything before the /) from a staff code
+ */
+function getStaffCodePrefix(staffId: string): string {
+  const parts = staffId.split("/");
+  return parts[0] || "";
+}
+
+/**
+ * Corrects a staff code to use the fixed suffix
+ */
+function correctStaffCode(staffId: string): string {
+  const prefix = getStaffCodePrefix(staffId);
+  if (!prefix) throw new Error(`Invalid staff code format: ${staffId}`);
+  return `${prefix}${CORRECT_STAFF_CODE_SUFFIX}`;
+}
+
+/**
+ * One-time migration to fix all existing staff codes with incorrect suffixes.
+ * Uses a simpler approach: update reportsToCode fields first, then recreate records with new IDs.
+ */
+export async function migrateStaffCodes(): Promise<MigrationResult> {
+  console.log("[Migration] Starting staff code migration...");
+
+  const result: MigrationResult = {
+    success: false,
+    totalRecords: 0,
+    correctedCount: 0,
+    referralUpdatesCount: 0,
+    corrections: [],
+    errors: [],
+  };
+
+  try {
+    console.log("[Migration] Initializing Firebase Admin database...");
+    const db = getAdminDb();
+    console.log("[Migration] Firebase Admin initialized");
+
+    // Step 1: Read all staff records
+    console.log("[Migration] Reading all staff records from Firestore...");
+    const staffSnap = await db.collection("staff").get();
+    result.totalRecords = staffSnap.size;
+    console.log(`[Migration] Found ${result.totalRecords} total staff records`);
+
+    if (result.totalRecords === 0) {
+      console.log("[Migration] No staff records found");
+      result.success = true;
+      result.errors.push("No staff records found in database");
+      return result;
+    }
+
+    // Step 2: Identify records that need correction
+    console.log("[Migration] Identifying records with incorrect suffixes...");
+    const toCorrect: Array<{ doc: FirebaseFirestore.DocumentSnapshot; record: StaffRecord }> = [];
+    const codeMapping = new Map<string, string>();
+
+    staffSnap.forEach((doc) => {
+      const record = doc.data() as StaffRecord;
+      if (!hasCorrectSuffix(record.staffId)) {
+        console.log(`[Migration] Found incorrect suffix: ${record.staffId}`);
+        toCorrect.push({ doc, record });
+        const newCode = correctStaffCode(record.staffId);
+        codeMapping.set(record.staffId, newCode);
+      }
+    });
+
+    console.log(`[Migration] ${toCorrect.length} records need correction`);
+
+    if (toCorrect.length === 0) {
+      console.log("[Migration] No records need correction");
+      result.success = true;
+      result.correctedCount = 0;
+      return result;
+    }
+
+    // Step 3: First pass - Update all reportsToCode fields to point to new codes
+    console.log("[Migration] Step 1: Updating referral references to new staff codes...");
+    let referralUpdatesCount = 0;
+
+    for (const doc of staffSnap.docs) {
+      const record = doc.data() as StaffRecord;
+
+      if (record.reportsToCode && codeMapping.has(record.reportsToCode)) {
+        const newReportsTo = codeMapping.get(record.reportsToCode)!;
+
+        try {
+          console.log(
+            `[Migration] Updating ${record.staffId} referral: ${record.reportsToCode} → ${newReportsTo}`
+          );
+          await db.collection("staff").doc(doc.id).update({ reportsToCode: newReportsTo });
+          referralUpdatesCount++;
+
+          const correctionEntry = result.corrections.find(
+            (c) => c.originalStaffId === record.reportsToCode
+          );
+          if (correctionEntry) {
+            correctionEntry.affectedReferrals++;
+          }
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : String(err);
+          console.error(`[Migration] Error updating referral for ${record.staffId}: ${errMsg}`);
+          result.errors.push(`Referral update failed: ${errMsg}`);
+        }
+      }
+    }
+
+    console.log(`[Migration] Referral updates completed: ${referralUpdatesCount}`);
+
+    // Step 4: Second pass - Now safely delete old and create new documents
+    console.log("[Migration] Step 2: Recreating staff records with corrected codes...");
+
+    for (const { doc, record } of toCorrect) {
+      const oldStaffId = record.staffId;
+      const newStaffId = correctStaffCode(oldStaffId);
+      const now = new Date().toISOString();
+
+      const correctedRecord: StaffRecord = {
+        ...record,
+        staffId: newStaffId,
+        staffCodeCorrected: true,
+        staffCodeCorrectedAt: now,
+        originalStaffId: oldStaffId,
+      };
+
+      try {
+        console.log(`[Migration] Recreating ${oldStaffId} → ${newStaffId}`);
+
+        // Delete old, create new
+        await db.collection("staff").doc(staffDocId(oldStaffId)).delete();
+        await db.collection("staff").doc(staffDocId(newStaffId)).set(correctedRecord);
+
+        // Repoint any existing referral link token to the new staffId so
+        // links already shared before the migration keep working.
+        const tokenSnap = await db.collection("linkTokens").where("staffId", "==", oldStaffId).get();
+        for (const tokenDoc of tokenSnap.docs) {
+          await tokenDoc.ref.update({ staffId: newStaffId });
+        }
+
+        result.corrections.push({
+          originalStaffId: oldStaffId,
+          newStaffId,
+          userName: record.fullName,
+          affectedReferrals: 0,
+        });
+
+        result.correctedCount++;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        console.error(`[Migration] Error recreating ${oldStaffId}: ${errMsg}`);
+        result.errors.push(`Failed to recreate ${oldStaffId}: ${errMsg}`);
+      }
+    }
+
+    // Step 7: Send notification emails to corrected staff
+    console.log("[Migration] Preparing email notifications...");
+    const emailNotifications = toCorrect.map(({ record }) => ({
+      email: record.email,
+      fullName: record.fullName,
+      oldStaffId: record.originalStaffId || record.staffId,
+      newStaffId: correctStaffCode(record.staffId),
+    }));
+
+    console.log(`[Migration] Sending ${emailNotifications.length} notification emails...`);
+    const emailResult = await sendBulkStaffCodeNotifications(emailNotifications);
+
+    result.success = true;
+    result.correctedCount = toCorrect.length;
+    result.referralUpdatesCount = referralUpdatesCount;
+    result.emailsSent = emailResult.successful;
+    result.emailsFailed = emailResult.failed;
+    if (emailResult.errors.length > 0) {
+      result.emailErrors = emailResult.errors;
+      result.errors.push(`Email sending: ${emailResult.failed} failed`);
+    }
+
+    console.log("[Migration] Migration completed successfully");
+    console.log(`[Migration] Results: ${result.correctedCount} corrected, ${result.referralUpdatesCount} referral updates, ${emailResult.successful} emails sent`);
+
+    return result;
+  } catch (err) {
+    result.success = false;
+    const errorMessage = err instanceof Error ? err.message : typeof err === "string" ? err : "Unknown error";
+    result.errors.push(`Migration failed: ${errorMessage}`);
+    console.error("Migration error:", err);
+    return result;
+  }
+}
+
+export interface ResendNotificationsResult {
+  success: boolean;
+  totalCorrectedStaff: number;
+  emailsSent: number;
+  emailsFailed: number;
+  emailErrors: Array<{ email: string; error: string }>;
+  errors: string[];
+}
+
+/**
+ * Re-sends the staff code correction email to everyone already marked
+ * staffCodeCorrected in Firestore, without touching any staff codes.
+ * Use this when the migration itself succeeded but email delivery failed
+ * (e.g. a missing/misconfigured email provider).
+ */
+export async function resendStaffCodeCorrectionNotifications(): Promise<ResendNotificationsResult> {
+  const result: ResendNotificationsResult = {
+    success: false,
+    totalCorrectedStaff: 0,
+    emailsSent: 0,
+    emailsFailed: 0,
+    emailErrors: [],
+    errors: [],
+  };
+
+  try {
+    const db = getAdminDb();
+    const correctedSnap = await db.collection("staff").where("staffCodeCorrected", "==", true).get();
+    result.totalCorrectedStaff = correctedSnap.size;
+
+    if (correctedSnap.size === 0) {
+      result.success = true;
+      result.errors.push("No corrected staff records found");
+      return result;
+    }
+
+    const notifications = correctedSnap.docs.map((doc) => {
+      const record = doc.data() as StaffRecord;
+      return {
+        email: record.email,
+        fullName: record.fullName,
+        oldStaffId: record.originalStaffId || record.staffId,
+        newStaffId: record.staffId,
+      };
+    });
+
+    const emailResult = await sendBulkStaffCodeNotifications(notifications);
+
+    result.success = true;
+    result.emailsSent = emailResult.successful;
+    result.emailsFailed = emailResult.failed;
+    result.emailErrors = emailResult.errors;
+
+    return result;
+  } catch (err) {
+    result.success = false;
+    result.errors.push(`Resend failed: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+}
+
+export interface RepairReferralLinksResult {
+  success: boolean;
+  totalCorrectedStaff: number;
+  tokensRepaired: number;
+  tokensAlreadyOk: number;
+  tokensMissing: number;
+  errors: string[];
+}
+
+/**
+ * Repoints referral link tokens for staff whose code was already corrected
+ * by an earlier migration run (i.e. staffCodeCorrected == true) but whose
+ * linkTokens doc still has the old, now-deleted staffId. Without this, both
+ * the admin dashboard's referral link and any link already shared with an
+ * applicant point at a staffId that no longer exists.
+ */
+export async function repairReferralLinksForCorrectedStaff(): Promise<RepairReferralLinksResult> {
+  const result: RepairReferralLinksResult = {
+    success: false,
+    totalCorrectedStaff: 0,
+    tokensRepaired: 0,
+    tokensAlreadyOk: 0,
+    tokensMissing: 0,
+    errors: [],
+  };
+
+  try {
+    const db = getAdminDb();
+    const correctedSnap = await db.collection("staff").where("staffCodeCorrected", "==", true).get();
+    result.totalCorrectedStaff = correctedSnap.size;
+
+    for (const doc of correctedSnap.docs) {
+      const record = doc.data() as StaffRecord;
+      const oldStaffId = record.originalStaffId;
+      if (!oldStaffId) continue;
+
+      try {
+        // Already pointing at the new staffId — nothing to do.
+        const okSnap = await db.collection("linkTokens").where("staffId", "==", record.staffId).limit(1).get();
+        if (!okSnap.empty) {
+          result.tokensAlreadyOk++;
+          continue;
+        }
+
+        const staleSnap = await db.collection("linkTokens").where("staffId", "==", oldStaffId).get();
+        if (staleSnap.empty) {
+          result.tokensMissing++;
+          continue;
+        }
+
+        for (const tokenDoc of staleSnap.docs) {
+          await tokenDoc.ref.update({ staffId: record.staffId });
+        }
+        result.tokensRepaired++;
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        result.errors.push(`Failed to repair token for ${record.staffId}: ${errMsg}`);
+      }
+    }
+
+    result.success = true;
+    return result;
+  } catch (err) {
+    result.success = false;
+    result.errors.push(`Repair failed: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+}
+
+/**
+ * Preview the migration without making changes.
+ * Returns what would be corrected.
+ */
+export async function previewStaffCodeMigration(): Promise<MigrationResult> {
+  console.log("[Preview] Starting migration preview...");
+
+  const result: MigrationResult = {
+    success: true,
+    totalRecords: 0,
+    correctedCount: 0,
+    referralUpdatesCount: 0,
+    corrections: [],
+    errors: [],
+  };
+
+  try {
+    console.log("[Preview] Initializing Firebase Admin...");
+    const db = getAdminDb();
+    console.log("[Preview] Reading all staff records...");
+    const staffSnap = await db.collection("staff").get();
+    result.totalRecords = staffSnap.size;
+    console.log(`[Preview] Found ${result.totalRecords} records`);
+
+    let referralUpdateCount = 0;
+
+    staffSnap.forEach((doc) => {
+      const record = doc.data() as StaffRecord;
+
+      if (!hasCorrectSuffix(record.staffId)) {
+        const newStaffId = correctStaffCode(record.staffId);
+
+        // Count how many users have this code as their referrer
+        let affectedReferrals = 0;
+        staffSnap.forEach((otherDoc) => {
+          const otherRecord = otherDoc.data() as StaffRecord;
+          if (otherRecord.reportsToCode === record.staffId) {
+            affectedReferrals++;
+          }
+        });
+
+        result.corrections.push({
+          originalStaffId: record.staffId,
+          newStaffId,
+          userName: record.fullName,
+          affectedReferrals,
+        });
+
+        result.correctedCount++;
+        referralUpdateCount += affectedReferrals;
+      }
+    });
+
+    result.referralUpdatesCount = referralUpdateCount;
+    return result;
+  } catch (err) {
+    result.success = false;
+    result.errors.push(`Preview failed: ${err instanceof Error ? err.message : String(err)}`);
+    return result;
+  }
+}
+
+===== src/lib/staffCodeNotification.ts =====
+import "server-only";
+
+export interface StaffCodeCorrectionNotification {
+  email: string;
+  fullName: string;
+  oldStaffId: string;
+  newStaffId: string;
+}
+
+function buildStaffCodeCorrectionEmailHtml(notification: StaffCodeCorrectionNotification): string {
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+    .header { background-color: #f8f9fa; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+    .content { margin-bottom: 20px; }
+    .staff-code-box { background-color: #e8f4f8; border-left: 4px solid #0066cc; padding: 15px; margin: 15px 0; }
+    .staff-code-label { font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 5px; }
+    .staff-code-value { font-size: 18px; font-weight: bold; color: #0066cc; font-family: monospace; }
+    .login-info { background-color: #f0f0f0; padding: 15px; border-radius: 5px; margin: 15px 0; }
+    .footer { color: #666; font-size: 12px; margin-top: 30px; border-top: 1px solid #ddd; padding-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Staff ID Correction Notice</h1>
+      <p>Hello ${notification.fullName},</p>
+    </div>
+
+    <div class="content">
+      <p>We recently identified and corrected an issue with your staff ID. Your account has been updated with a new standardized staff ID.</p>
+
+      <div class="staff-code-box">
+        <div class="staff-code-label">Your Old Staff ID (No Longer Valid)</div>
+        <div class="staff-code-value">${notification.oldStaffId}</div>
+      </div>
+
+      <div class="staff-code-box">
+        <div class="staff-code-label">Your New Staff ID (Use This)</div>
+        <div class="staff-code-value">${notification.newStaffId}</div>
+      </div>
+
+      <h2>How to Login</h2>
+      <p>You can now login to the Globe-Tech portal using either:</p>
+
+      <div class="login-info">
+        <p><strong>Option 1: Your Email Address</strong></p>
+        <p>Email: ${notification.email}</p>
+        <p>Password: Your existing password (unchanged)</p>
+      </div>
+
+      <div class="login-info">
+        <p><strong>Option 2: Your New Staff ID</strong></p>
+        <p>Staff ID: ${notification.newStaffId}</p>
+        <p>Password: Your existing password (unchanged)</p>
+      </div>
+
+      <p><strong>Important:</strong> Your password has NOT changed. You can continue using your existing password to login with either your email or your new staff ID.</p>
+
+      <p>If you have any questions or encounter any issues logging in, please contact our support team.</p>
+    </div>
+
+    <div class="footer">
+      <p>This is an automated message from Globe-Tech. Please do not reply to this email.</p>
+      <p>&copy; 2026 Globe-Tech. All rights reserved.</p>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Send email notification to staff about their corrected staff ID via Resend
+ * (same provider already used for grant-code emails in src/lib/email.ts).
+ */
+export async function sendStaffCodeCorrectionEmail(
+  notification: StaffCodeCorrectionNotification
+): Promise<{ success: boolean; error?: string }> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { success: false, error: "RESEND_API_KEY is not set. Add it in Vercel's environment variables." };
+  }
+  const from = process.env.GRANT_EMAIL_FROM || "Globe-Tech SME Grant <grant@globetechimpact.com>";
+
+  try {
+    const res = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        from,
+        to: notification.email,
+        subject: "Your Staff ID Has Been Updated - Action Required",
+        html: buildStaffCodeCorrectionEmailHtml(notification),
+      }),
+    });
+
+    if (!res.ok) {
+      throw new Error(`Resend API error: ${res.status} ${await res.text()}`);
+    }
+
+    console.log(`[Email] Sent staff code correction email to ${notification.email}`);
+    return { success: true };
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    console.error(`[Email] Failed to send email to ${notification.email}:`, errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * Send emails to all staff with corrected codes
+ */
+export async function sendBulkStaffCodeNotifications(
+  notifications: StaffCodeCorrectionNotification[]
+): Promise<{
+  total: number;
+  successful: number;
+  failed: number;
+  errors: Array<{ email: string; error: string }>;
+}> {
+  const result = {
+    total: notifications.length,
+    successful: 0,
+    failed: 0,
+    errors: [] as Array<{ email: string; error: string }>,
+  };
+
+  console.log(`[Email] Sending ${notifications.length} staff code correction emails...`);
+
+  // Resend allows 10 requests/second — space sends out to stay under that
+  // instead of firing sequential calls as fast as the event loop allows.
+  const MIN_INTERVAL_MS = 150;
+
+  for (let i = 0; i < notifications.length; i++) {
+    if (i > 0) {
+      await new Promise((resolve) => setTimeout(resolve, MIN_INTERVAL_MS));
+    }
+
+    const notification = notifications[i]!;
+    const sendResult = await sendStaffCodeCorrectionEmail(notification);
+    if (sendResult.success) {
+      result.successful++;
+    } else {
+      result.failed++;
+      result.errors.push({
+        email: notification.email,
+        error: sendResult.error || "Unknown error",
+      });
+    }
+  }
+
+  console.log(
+    `[Email] Bulk send complete: ${result.successful} successful, ${result.failed} failed`
+  );
+  return result;
+}
+
+===== src/lib/staffId.ts =====
+/**
+ * Staff IDs from the onboarding sheet can contain a "/" (e.g. "GBT01S/115545925"),
+ * but Firestore document IDs can't — a "/" inside a path segment gets read as a
+ * path separator, which turns "staff/GBT01S/115545925" into a 3-segment path
+ * (pointing at a collection, not a document) and throws "documentPath must point
+ * to a document". Every place that turns a staffId into a Firestore doc ID must
+ * run it through this first. The original, unmodified staffId is still what gets
+ * stored in the `staffId` field and shown in the UI — only the doc ID is affected.
+ */
+export function staffDocId(staffId: string): string {
+  return staffId.trim().replace(/\//g, "_");
+}
+
+===== src/app/admin/staff/actions.ts =====
+"use server";
+
+import { getAdminDb } from "@/lib/firebase-admin";
+import { staffDocId } from "@/lib/staffId";
+
+export type ApprovalResult = { ok: true } | { ok: false; error: string };
+
+/** Approves a self-registered Regional Coordinator, making their account active. */
+export async function approvePendingStaff(staffId: string): Promise<ApprovalResult> {
+  try {
+    await getAdminDb().collection("staff").doc(staffDocId(staffId)).set(
+      { active: true, pendingApproval: false },
+      { merge: true }
+    );
+    return { ok: true };
+  } catch (err) {
+    console.error("approvePendingStaff failed:", err);
+    return { ok: false, error: "Couldn't approve this account. Please try again." };
+  }
+}
+
+/** Rejects a self-registered Regional Coordinator signup, removing the record entirely. */
+export async function rejectPendingStaff(staffId: string): Promise<ApprovalResult> {
+  try {
+    await getAdminDb().collection("staff").doc(staffDocId(staffId)).delete();
+    return { ok: true };
+  } catch (err) {
+    console.error("rejectPendingStaff failed:", err);
+    return { ok: false, error: "Couldn't remove this signup. Please try again." };
+  }
+}
+
+===== src/app/admin/staff-code-migration/actions.ts =====
+"use server";
+
+import {
+  migrateStaffCodes,
+  previewStaffCodeMigration,
+  resendStaffCodeCorrectionNotifications,
+  repairReferralLinksForCorrectedStaff,
+  type MigrationResult,
+  type ResendNotificationsResult,
+  type RepairReferralLinksResult,
+} from "@/lib/staffCodeMigration";
+
+export async function previewMigration(): Promise<MigrationResult> {
+  return previewStaffCodeMigration();
+}
+
+export async function executeMigration(): Promise<MigrationResult> {
+  return migrateStaffCodes();
+}
+
+export async function resendNotifications(): Promise<ResendNotificationsResult> {
+  return resendStaffCodeCorrectionNotifications();
+}
+
+export async function repairReferralLinks(): Promise<RepairReferralLinksResult> {
+  return repairReferralLinksForCorrectedStaff();
+}
+
+===== src/app/admin/login/actions.ts =====
+"use server";
+
+import { resolveLoginEmail, verifyStaffSession } from "@/lib/staffAuth";
+
+export async function resolveLogin(identifier: string) {
+  return resolveLoginEmail(identifier);
+}
+
+export type StaffActiveCheck =
+  | { ok: true; active: true }
+  | { ok: true; active: false; error: string }
+  | { ok: false; error: string };
+
+/**
+ * Called right after a successful Firebase sign-in for a non-admin user, to
+ * block a self-registered Regional Coordinator from reaching the dashboard
+ * until an admin approves their account. Firebase Auth itself has no
+ * concept of "pending" — this check has to happen at the app level.
+ */
+export async function checkStaffActiveAfterLogin(idToken: string): Promise<StaffActiveCheck> {
+  const verified = await verifyStaffSession(idToken);
+  if (!verified.ok) return { ok: false, error: verified.error };
+
+  if (!verified.session.staff.active) {
+    return {
+      ok: true,
+      active: false,
+      error: "Your account is pending admin approval. You'll be notified once it's approved.",
+    };
+  }
+  return { ok: true, active: true };
+}
+

@@ -20,20 +20,24 @@ const generateSetupToken = customAlphabet(setupTokenAlphabet, 24);
 async function generateStaffCode(tier: string, letter: string): Promise<string> {
   const db = getAdminDb();
   const countSnap = await db.collection("staff").where("tier", "==", tier).count().get();
-  const seq = String(countSnap.data().count + 1).padStart(2, "0");
+  let seqNum = countSnap.data().count + 1;
 
   // Use fixed suffix for all new staff codes
   const fixedSuffix = "115545925";
-  const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
 
-  // Verify this code doesn't already exist (collision check)
-  const existing = await db.collection("staff").doc(staffDocId(candidate)).get();
-  if (!existing.exists) return candidate;
+  // Retry with incrementing sequence numbers in case of a collision —
+  // the count-based sequence isn't guaranteed collision-free (e.g. after
+  // a migration deletes/recreates records, or two signups land at once).
+  for (let attempts = 0; attempts < 50; attempts++) {
+    const seq = String(seqNum).padStart(2, "0");
+    const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
+    const existing = await db.collection("staff").doc(staffDocId(candidate)).get();
+    if (!existing.exists) return candidate;
+    seqNum++;
+  }
 
-  // If collision occurs (extremely unlikely), throw error with helpful message
   throw new Error(
-    `Staff code collision: ${candidate} already exists. This should be vanishingly rare. ` +
-    `Contact an administrator if you see this error.`
+    `Couldn't generate a unique staff code for tier "${tier}" after 50 attempts. Contact an administrator.`
   );
 }
 
@@ -129,7 +133,13 @@ export async function registerNewStaffSimplified(
     reportsToName = referrer.fullName;
   }
 
-  const staffId = await generateStaffCode("Marketing Officer", "M");
+  let staffId: string;
+  try {
+    staffId = await generateStaffCode("Marketing Officer", "M");
+  } catch (err) {
+    console.error("registerNewStaffSimplified: staff code generation failed:", err);
+    return { ok: false, error: "Something went wrong creating your account. Please try again in a moment." };
+  }
   const now = new Date().toISOString();
 
   const record: StaffRecord = {

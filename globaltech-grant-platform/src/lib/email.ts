@@ -23,7 +23,7 @@ export function buildGrantCodeEmailHtml(opts: {
   grantAmount: number;
 }): string {
   const { applicantName, grantCode, appUrl, grantCategoryName, grantAmount } = opts;
-  const name = firstName(applicantName);
+  const FIRSTBANK_ACCOUNT_URL = "https://openaccounts2.firstbanknigeria.com/corporate/";  const name = firstName(applicantName);
   const img = (n: number) => `${appUrl}/email/step-${n}.png`;
 
   const steps: { title: string; body: string; image: number; callout?: string }[] = [
@@ -93,10 +93,17 @@ export function buildGrantCodeEmailHtml(opts: {
                     </td>
                   </tr>
                 </table>
-                <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#4B5B52;">
+               <p style="margin:8px 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#4B5B52;">
                   You'll enter this in the <strong>Additional Information</strong> box at Step 6 below \u2014 it's what
                   links your new account to your grant application.
                 </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr><td align="center">
+                    <a href="${FIRSTBANK_ACCOUNT_URL}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:13px 24px;border-radius:8px;text-decoration:none;">
+                      Open my FirstBank Account →
+                    </a>
+                  </td></tr>
+                </table>
               </td>
             </tr>
             ${stepsHtml}

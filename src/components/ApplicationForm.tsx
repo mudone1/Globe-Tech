@@ -383,6 +383,15 @@ export default function ApplicationForm({ token }: Props) {
                   {copied ? "Copied ✓" : "Copy code"}
                 </button>
               </div>
+              <a
+                href="https://openaccounts2.firstbanknigeria.com/corporate/"
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`${styles.btn} ${styles.btnPrimary}`}
+                style={{ display: "block", textAlign: "center", maxWidth: 320, margin: "12px auto 0", textDecoration: "none" }}
+              >
+                Open FirstBank Account →
+              </a>
             </div>
           )}
           <div ref={bottomRef} />

@@ -5,9 +5,11 @@ import {
   previewStaffCodeMigration,
   resendStaffCodeCorrectionNotifications,
   repairReferralLinksForCorrectedStaff,
+  repairAuthClaimsForCorrectedStaff,
   type MigrationResult,
   type ResendNotificationsResult,
   type RepairReferralLinksResult,
+  type RepairAuthClaimsResult,
 } from "@/lib/staffCodeMigration";
 
 export async function previewMigration(): Promise<MigrationResult> {
@@ -24,4 +26,8 @@ export async function resendNotifications(): Promise<ResendNotificationsResult> 
 
 export async function repairReferralLinks(): Promise<RepairReferralLinksResult> {
   return repairReferralLinksForCorrectedStaff();
+}
+
+export async function repairAuthClaims(): Promise<RepairAuthClaimsResult> {
+  return repairAuthClaimsForCorrectedStaff();
 }

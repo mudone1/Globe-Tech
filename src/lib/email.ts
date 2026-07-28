@@ -24,6 +24,7 @@ export function buildGrantCodeEmailHtml(opts: {
   applicationId: string;
 }): string {
   const { applicantName, grantCode, appUrl, grantCategoryName, grantAmount, applicationId } = opts;
+  const FIRSTBANK_ACCOUNT_URL = "https://openaccounts2.firstbanknigeria.com/corporate/";
   const name = firstName(applicantName);
   const img = (n: number) => `${appUrl}/email/step-${n}.png`;
   const continuationLink = `${appUrl}/apply/account-details/${applicationId}`;
@@ -99,6 +100,13 @@ export function buildGrantCodeEmailHtml(opts: {
                   You'll enter this in the <strong>Additional Information</strong> box at Step 6 below \u2014 it's what
                   links your new account to your grant application.
                 </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr><td align="center">
+                    <a href="${FIRSTBANK_ACCOUNT_URL}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:13px 24px;border-radius:8px;text-decoration:none;">
+                      Open my FirstBank Account \u2192
+                    </a>
+                  </td></tr>
+                </table>
               </td>
             </tr>
             ${stepsHtml}
