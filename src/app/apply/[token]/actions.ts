@@ -5,7 +5,6 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
 import { sendGrantCodeEmail } from "@/lib/email";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
-import { maskEmail } from "@/lib/maskEmail";
 import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
 
 const REF_COOKIE = "gt_ref_token";
@@ -129,24 +128,6 @@ export async function submitApplication(
   const phoneOk = /^[0-9+()\-\s]{7,}$/.test(input.phone);
   if (!phoneOk) {
     return { ok: false, error: "Please enter a valid phone number." };
-  }
-
-  // One phone number = one applicant. The same email can apply multiple
-  // times (e.g. for different businesses), but a repeat phone number means
-  // this is very likely the same person re-applying — point them back to
-  // their existing application instead of creating a duplicate.
-  const normalizedPhone = input.phone.trim();
-  const existingByPhone = await getAdminDb()
-    .collection("applications")
-    .where("phone", "==", normalizedPhone)
-    .limit(1)
-    .get();
-  if (!existingByPhone.empty) {
-    const existing = existingByPhone.docs[0]!.data() as ApplicationRecord;
-    return {
-      ok: false,
-      error: `An application has already been submitted using this phone number. Please check your email (${maskEmail(existing.email)}) for your previous application and Grant Code.`,
-    };
   }
 
   // Resolve fresh from the token — don't trust anything the client claims
