@@ -12,6 +12,7 @@ export interface DashboardMember {
   staffId: string;
   fullName: string;
   tier: string;
+  reportsToCode?: string;
   link: string;
   submissions: number;
   completed: number;
@@ -63,6 +64,7 @@ function toMember(staff: StaffRecord, stats: StaffStats | undefined, linksHidden
     staffId: staff.staffId,
     fullName: staff.fullName,
     tier: staff.tier,
+    reportsToCode: staff.reportsToCode,
     link: linksHidden ? LINKS_HIDDEN_MESSAGE : stats?.link || "(link not generated yet)",
     submissions: stats?.submissions ?? 0,
     completed: stats?.completed ?? 0,

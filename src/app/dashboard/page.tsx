@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { getFirebaseAuth } from "@/lib/firebase-client";
 import { signOut } from "firebase/auth";
 import { useRouter } from "next/navigation";
@@ -9,11 +9,13 @@ import StaffGate from "@/components/StaffGate";
 import BrandMark from "@/components/BrandMark";
 import CopyButton from "@/components/CopyButton";
 import Skeleton from "@/components/Skeleton";
+import HierarchyTree from "@/components/HierarchyTree";
+import { buildHierarchyForest, sumSubtree, type HierarchyNode } from "@/lib/staffHierarchy";
 import { KpiCard, KPI_GRADIENTS } from "@/components/dashboard/KpiCard";
 import { DonutLegendCard } from "@/components/dashboard/DonutLegendCard";
 import { TimeSeriesAreaCard } from "@/components/dashboard/TimeSeriesAreaCard";
 import { initials } from "@/lib/initials";
-import { getMyDashboardData, type DashboardData, type DashboardError } from "@/app/dashboard/actions";
+import { getMyDashboardData, type DashboardData, type DashboardMember, type DashboardError } from "@/app/dashboard/actions";
 
 export default function DashboardPage() {
   return (
@@ -52,6 +54,62 @@ function PersonalDashboard() {
   async function handleSignOut() {
     await signOut(getFirebaseAuth());
     router.push("/admin/login");
+  }
+
+  const teamForest = useMemo(() => {
+    if (!data) return [];
+    const rootIds = new Set(
+      data.downline.filter((m) => m.reportsToCode === data.self.staffId).map((m) => m.staffId)
+    );
+    return buildHierarchyForest(data.downline, rootIds);
+  }, [data]);
+
+  function renderTeamRow(node: HierarchyNode<DashboardMember>, depth: number) {
+    const m = node.staff;
+    const hasChildren = node.children.length > 0;
+    const rollupSubmissions = hasChildren ? sumSubtree(node, (s) => s.submissions) : m.submissions;
+    const rollupCompleted = hasChildren ? sumSubtree(node, (s) => s.completed) : m.completed;
+    const rollupConversion = rollupSubmissions ? Math.round((rollupCompleted / rollupSubmissions) * 100) : 0;
+
+    return (
+      <div className="flex flex-wrap items-center gap-4">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold text-white shadow-sm"
+          style={{ background: KPI_GRADIENTS[depth % KPI_GRADIENTS.length] }}
+        >
+          {initials(m.fullName)}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-ink">{m.fullName}</p>
+          <p className="text-xs text-slate">{m.tier}</p>
+        </div>
+        <div className="hidden w-24 text-right text-xs text-slate sm:block">
+          {m.registeredAt ? new Date(m.registeredAt).toLocaleDateString("en-GB", { year: "2-digit", month: "short", day: "numeric" }) : "—"}
+        </div>
+        <div className="hidden w-32 items-center gap-2 sm:flex">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-mist">
+            <div
+              className="h-full rounded-full transition-[width] duration-700 ease-out"
+              style={{
+                width: `${Math.min(100, m.conversionRate)}%`,
+                background: "linear-gradient(90deg, #0E7A3A, #C8952A)",
+              }}
+            />
+          </div>
+          <span className="w-9 text-right text-xs text-slate">{m.conversionRate}%</span>
+        </div>
+        <div className="w-20 text-right text-sm font-medium text-ink">{m.submissions}</div>
+        <div className="w-20 text-right text-sm text-slate">{m.completed}</div>
+        <div className="flex w-full items-center justify-end gap-2 sm:w-32">
+          {m.link.startsWith("http") ? <CopyButton value={m.link} label="Copy" /> : <span className="text-right text-xs text-slate">Paused</span>}
+        </div>
+        {hasChildren && (
+          <p className="w-full text-xs font-medium text-brand">
+            + {node.children.length} under them: {rollupSubmissions} submissions, {rollupCompleted} completed, {rollupConversion}% conversion
+          </p>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -172,51 +230,7 @@ function PersonalDashboard() {
                 <span className="w-20 text-right">Completed</span>
                 <span className="w-32 text-right">Link</span>
               </div>
-              <div className="divide-y divide-line">
-                {data.downline.map((m, i) => (
-                  <div
-                    key={m.staffId}
-                    className="row-rise flex flex-wrap items-center gap-4 px-6 py-3.5 transition-colors duration-150 hover:bg-paper"
-                    style={{ "--delay": `${Math.min(i, 10) * 45}ms` } as CSSProperties}
-                  >
-                    <div
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold text-white shadow-sm"
-                      style={{ background: KPI_GRADIENTS[i % KPI_GRADIENTS.length] }}
-                    >
-                      {initials(m.fullName)}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-ink">{m.fullName}</p>
-                      <p className="text-xs text-slate">{m.tier}</p>
-                    </div>
-                    <div className="hidden w-24 text-right text-xs text-slate sm:block">
-                      {m.registeredAt ? new Date(m.registeredAt).toLocaleDateString("en-GB", { year: "2-digit", month: "short", day: "numeric" }) : "—"}
-                    </div>
-                    <div className="hidden w-32 items-center gap-2 sm:flex">
-                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-mist">
-                        <div
-                          className="h-full rounded-full transition-[width] duration-700 ease-out"
-                          style={{
-                            width: `${Math.min(100, m.conversionRate)}%`,
-                            transitionDelay: `${Math.min(i, 10) * 45}ms`,
-                            background: "linear-gradient(90deg, #0E7A3A, #C8952A)",
-                          }}
-                        />
-                      </div>
-                      <span className="w-9 text-right text-xs text-slate">{m.conversionRate}%</span>
-                    </div>
-                    <div className="w-20 text-right text-sm font-medium text-ink">{m.submissions}</div>
-                    <div className="w-20 text-right text-sm text-slate">{m.completed}</div>
-                    <div className="flex w-full items-center justify-end gap-2 sm:w-32">
-                      {m.link.startsWith("http") ? (
-                        <CopyButton value={m.link} label="Copy" />
-                      ) : (
-                        <span className="text-right text-xs text-slate">Paused</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <HierarchyTree nodes={teamForest} renderRow={renderTeamRow} getKey={(s) => s.staffId} />
             </section>
           )}
 

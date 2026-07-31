@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState, useTransition, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
 import { collection, getDocs } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
 import Skeleton from "@/components/Skeleton";
+import HierarchyTree from "@/components/HierarchyTree";
+import { buildHierarchyForest, countDescendants, type HierarchyNode } from "@/lib/staffHierarchy";
 import { approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
 import type { StaffRecord, LinkTokenRecord } from "@/lib/types";
 
@@ -28,6 +30,7 @@ function StaffTable() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [view, setView] = useState<"hierarchy" | "list">("hierarchy");
   const [isReviewing, startReview] = useTransition();
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
@@ -100,6 +103,60 @@ function StaffTable() {
       r.tier.toLowerCase().includes(filter.toLowerCase())
   );
 
+  const forest = useMemo(() => buildHierarchyForest(rows ?? []), [rows]);
+
+  function renderTreeRow(node: HierarchyNode<Row>, _depth: number) {
+    const r = node.staff;
+    const stateCoordCount = node.staff.tier === "Regional Coordinator" ? node.children.length : 0;
+    const marketerCount =
+      node.staff.tier === "Regional Coordinator"
+        ? countDescendants(node, (s) => s.tier === "Marketing Officer")
+        : node.staff.tier === "State Coordinator"
+          ? node.children.length
+          : 0;
+
+    return (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium text-ink">
+            {r.fullName}
+            {r.pendingApproval && (
+              <span className="ml-2 rounded-full bg-goldSoft px-2 py-0.5 text-xs font-medium text-ink">Pending</span>
+            )}
+            {r.staffCodeCorrected && (
+              <span
+                className="ml-2 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800"
+                title={`Corrected on ${r.staffCodeCorrectedAt ? new Date(r.staffCodeCorrectedAt).toLocaleDateString() : "unknown date"}`}
+              >
+                Corrected
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-slate">{r.tier}</p>
+          {r.reportsToName && <p className="text-xs text-slate">Reports to: {r.reportsToName}</p>}
+          <div className="mt-1 font-mono text-xs text-slate">
+            <span>{r.staffId}</span>
+            {r.originalStaffId && (
+              <span className="ml-2 text-yellow-700" title="Original staff code before correction">
+                (was: {r.originalStaffId})
+              </span>
+            )}
+          </div>
+          {(stateCoordCount > 0 || marketerCount > 0) && (
+            <p className="mt-1 text-xs font-medium text-brand">
+              {r.tier === "Regional Coordinator" && `${stateCoordCount} State Coordinator${stateCoordCount === 1 ? "" : "s"} · ${marketerCount} Marketing Officer${marketerCount === 1 ? "" : "s"}`}
+              {r.tier === "State Coordinator" && `${marketerCount} Marketing Officer${marketerCount === 1 ? "" : "s"}`}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-slate">{r.link}</span>
+          {r.link.startsWith("http") && <CopyButton value={r.link} label="Copy link" />}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -111,12 +168,32 @@ function StaffTable() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <input
-            className="input max-w-xs"
-            placeholder="Search name, staffId, tier…"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
+          <div className="flex rounded-md border border-line bg-white p-0.5">
+            <button
+              onClick={() => setView("hierarchy")}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                view === "hierarchy" ? "bg-paper text-ink" : "text-slate hover:text-ink"
+              }`}
+            >
+              Hierarchy
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                view === "list" ? "bg-paper text-ink" : "text-slate hover:text-ink"
+              }`}
+            >
+              List
+            </button>
+          </div>
+          {view === "list" && (
+            <input
+              className="input max-w-xs"
+              placeholder="Search name, staffId, tier…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          )}
         </div>
       </header>
 
@@ -183,6 +260,30 @@ function StaffTable() {
         </div>
       )}
 
+      {view === "hierarchy" && (
+        <div className="overflow-hidden rounded-card border border-line bg-white">
+          {!rows && !error && (
+            <div className="divide-y divide-line">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="px-4 py-3.5">
+                  <Skeleton className="h-3.5 w-full max-w-[220px]" />
+                </div>
+              ))}
+            </div>
+          )}
+          {error && <p className="px-4 py-8 text-center text-bad">{error}</p>}
+          {rows && !error && forest.length === 0 && (
+            <p className="px-4 py-8 text-center text-slate">
+              No staff yet — staff appear here once they register.
+            </p>
+          )}
+          {rows && !error && forest.length > 0 && (
+            <HierarchyTree nodes={forest} renderRow={renderTreeRow} getKey={(s) => s.staffId} />
+          )}
+        </div>
+      )}
+
+      {view === "list" && (
       <div className="overflow-hidden rounded-card border border-line bg-white">
         <table className="w-full text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
@@ -266,6 +367,7 @@ function StaffTable() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
