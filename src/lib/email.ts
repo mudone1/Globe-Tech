@@ -39,7 +39,7 @@ export function buildGrantCodeEmailHtml(opts: {
       title: "Step 6: Choose your branch and enter your Grant Code",
       body: "Select your Preferred Branch from the list. Then look for the box labelled \u201cAdditional Information\u201d.",
       image: 6,
-      callout: `You MUST type your Grant Code <strong>${grantCode}</strong> exactly as shown into the "Additional Information" box before clicking Continue. If this code is entered incorrectly, we will not be able to link your account to the grant you applied for.`,
+      callout: `You MUST type your Grant Code <strong>${grantCode}</strong> exactly as shown into the "Additional Information" box before clicking Continue. If this code is not entered, we will not be able to verify that your account was opened through this program — which may result in <strong>disqualification from the grant</strong>.`,
     },
     { title: "Step 7: Enter your BVN and NIN", body: "Type in your 11-digit BVN and your 11-digit NIN. (If you don't know your BVN, dial *565*0# on your phone to receive it by SMS.)", image: 7 },
     { title: "Step 8: Take a selfie", body: "Follow the on-screen instructions for \u201cFace Capture\u201d. Stand in a brightly lit area and look straight at the camera.", image: 8 },
@@ -115,11 +115,11 @@ export function buildGrantCodeEmailHtml(opts: {
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0D2C1A;border:1px solid #1E4A2E;border-radius:10px;">
                   <tr>
                     <td style="padding:18px 20px;">
-                      <p style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#FFFFFF;">One more step — later</p>
+                      <p style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#FFFFFF;">One more step</p>
                       <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#D7E4D9;">
                         Once you've finished opening your FirstBank account above, come back to the link below
-                        <strong>any time after 48 hours</strong> from now to submit your new account details \u2014
-                        that's the final step to complete your application. Bookmark this link or keep this email:
+                        to submit your new account details right away \u2014 that's the final step to complete
+                        your application. Bookmark this link or keep this email:
                       </p>
                       <a href="${continuationLink}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:14px;padding:11px 18px;border-radius:8px;text-decoration:none;">
                         Submit my account details \u2192

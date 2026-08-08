@@ -7,7 +7,7 @@ import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import { uploadBankValidationFile, listBankValidationBatches, type BankValidationBatchSummary } from "@/app/admin/verification/actions";
 import { PHASE2_STATUS_INFO } from "@/lib/phase2Status";
-import type { ApplicationRecord, Phase2VerificationStatus } from "@/lib/types";
+import type { ApplicationRecord, Phase2VerificationStatus, StaffRecord } from "@/lib/types";
 
 export default function VerificationPage() {
   return (
@@ -27,18 +27,45 @@ function Verification() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [batches, setBatches] = useState<BankValidationBatchSummary[] | null>(null);
   const [pending, setPending] = useState<ApplicationRecord[] | null>(null);
+  const [staffById, setStaffById] = useState<Map<string, StaffRecord>>(new Map());
   const [actingOn, setActingOn] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
 
   async function loadPending() {
     try {
       const db = getFirebaseDb();
-      const snap = await getDocs(query(collection(db, "applications"), where("phase2VerificationStatus", "in", PENDING_STATUSES)));
-      setPending(snap.docs.map((d) => d.data() as ApplicationRecord));
+      const [pendingSnap, staffSnap] = await Promise.all([
+        getDocs(query(collection(db, "applications"), where("phase2VerificationStatus", "in", PENDING_STATUSES))),
+        getDocs(collection(db, "staff")),
+      ]);
+      setPending(pendingSnap.docs.map((d) => d.data() as ApplicationRecord));
+      const map = new Map<string, StaffRecord>();
+      staffSnap.forEach((d) => {
+        const s = d.data() as StaffRecord;
+        map.set(s.staffId, s);
+      });
+      setStaffById(map);
     } catch (err) {
       console.error("Failed to load pending verifications:", err);
     }
   }
+
+  function staffNameFor(referredBy: string): string {
+    if (referredBy === "unassigned") return "Unassigned";
+    return staffById.get(referredBy)?.fullName ?? referredBy;
+  }
+
+  const filteredPending = (pending ?? []).filter((a) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      a.applicantName?.toLowerCase().includes(q) ||
+      a.phone?.toLowerCase().includes(q) ||
+      a.referredBy?.toLowerCase().includes(q) ||
+      staffNameFor(a.referredBy).toLowerCase().includes(q)
+    );
+  });
 
   async function loadBatches() {
     try {
@@ -171,11 +198,22 @@ function Verification() {
         <div className="border-b border-line px-6 py-4">
           <h2 className="font-display text-base font-semibold text-ink">Pending verification</h2>
           <p className="mt-1 text-sm text-slate">Applicants who've submitted account details but aren't fully verified yet.</p>
+          <input
+            className="input mt-3 max-w-xs"
+            placeholder="Search name, phone, staff code…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
             <tr>
+              <th className="px-4 py-3">S/N</th>
               <th className="px-4 py-3">Applicant</th>
+              <th className="px-4 py-3">Phone number</th>
+              <th className="px-4 py-3">Staff code</th>
+              <th className="px-4 py-3">Staff name</th>
               <th className="px-4 py-3">Account name</th>
               <th className="px-4 py-3">Account number</th>
               <th className="px-4 py-3">Status</th>
@@ -185,14 +223,27 @@ function Verification() {
           <tbody>
             {pending && pending.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate">
                   Nobody's pending verification right now.
                 </td>
               </tr>
             )}
-            {pending?.map((a) => (
+            {pending && pending.length > 0 && filteredPending.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-slate">
+                  No pending applicants match "{search}".
+                </td>
+              </tr>
+            )}
+            {filteredPending.map((a, i) => (
               <tr key={a.applicationId} className="border-t border-line">
+                <td className="px-4 py-3 text-slate">{i + 1}</td>
                 <td className="px-4 py-3 font-medium text-ink">{a.applicantName}</td>
+                <td className="px-4 py-3 text-slate">{a.phone}</td>
+                <td className="px-4 py-3 font-mono text-xs text-slate">
+                  {a.referredBy === "unassigned" ? "Unassigned" : a.referredBy}
+                </td>
+                <td className="px-4 py-3 text-slate">{staffNameFor(a.referredBy)}</td>
                 <td className="px-4 py-3 text-slate">{a.bankAccountName}</td>
                 <td className="px-4 py-3 font-mono text-xs text-slate">{a.bankAccountNumber}</td>
                 <td className="px-4 py-3">
@@ -222,6 +273,7 @@ function Verification() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

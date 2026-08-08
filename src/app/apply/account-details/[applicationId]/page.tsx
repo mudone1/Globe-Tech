@@ -3,6 +3,7 @@
 import { useEffect, useState, use as usePromise } from "react";
 import Image from "next/image";
 import { getContinuationStatus, submitAccountDetails, type ContinuationStatus } from "@/app/apply/account-details/actions";
+import { isLikelyPersonName, ACCOUNT_NAME_ERROR } from "@/lib/validation";
 import styles from "@/components/ChatApplicationForm.module.css";
 
 function timeRemaining(unlocksAt: string): string {
@@ -34,6 +35,10 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
   async function handleSubmit() {
     if (!accountNumber.trim() || !accountName.trim()) {
       setError("Enter both your account number and account name.");
+      return;
+    }
+    if (!isLikelyPersonName(accountName)) {
+      setError(ACCOUNT_NAME_ERROR);
       return;
     }
     setSubmitting(true);

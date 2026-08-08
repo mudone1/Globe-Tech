@@ -165,6 +165,7 @@ function ApplicationsBrowser() {
         <table className="w-full min-w-[860px] text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
             <tr>
+              <th className="px-4 py-3">S/N</th>
               <th className="px-4 py-3">Applicant</th>
               <th className="px-4 py-3">Business</th>
               <th className="px-4 py-3">Grant category</th>
@@ -180,7 +181,7 @@ function ApplicationsBrowser() {
               <>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-t border-line">
-                    {Array.from({ length: 8 }).map((_, j) => (
+                    {Array.from({ length: 9 }).map((_, j) => (
                       <td key={j} className="px-4 py-3.5">
                         <Skeleton className="h-3.5 w-full max-w-[110px]" />
                       </td>
@@ -191,14 +192,14 @@ function ApplicationsBrowser() {
             )}
             {error && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-bad">
+                <td colSpan={9} className="px-4 py-8 text-center text-bad">
                   {error}
                 </td>
               </tr>
             )}
             {apps && !error && pageRows.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate">
                   {apps.length === 0 ? "No applications yet." : "No applications match your filters."}
                 </td>
               </tr>
@@ -211,6 +212,7 @@ function ApplicationsBrowser() {
                   className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
                   style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
                 >
+                  <td className="px-4 py-3 text-slate">{page * PAGE_SIZE + i + 1}</td>
                   <td className="px-4 py-3">
                     <Link
                       href={`/admin/applications/${a.applicationId}`}

@@ -371,8 +371,7 @@ export default function ApplicationForm({ token }: Props) {
                 Your application for the <strong>{category.name}</strong> (₦{category.amount.toLocaleString()}) has
                 been received. Recipients are chosen by random draw each quarter, so there&rsquo;s nothing more to
                 do on that front. Check your email for the next step — opening your FirstBank account — we&rsquo;ve
-                sent a full walkthrough to <strong>{answers.email as string}</strong>. Enter the code below in the{" "}
-                <strong>Additional Information</strong> box on FirstBank&rsquo;s account-opening form.
+                sent a full walkthrough to <strong>{answers.email as string}</strong>.
               </p>
               <div className={styles.codeBlock}>
                 <p className={styles.label}>Your Grant Code</p>
@@ -383,6 +382,17 @@ export default function ApplicationForm({ token }: Props) {
                   {copied ? "Copied ✓" : "Copy code"}
                 </button>
               </div>
+              <p style={{ fontWeight: 700, maxWidth: 420, margin: "16px auto 0", textAlign: "center" }}>
+                Enter this code in the <strong>Additional Information</strong> box on FirstBank&rsquo;s account-opening form.
+              </p>
+              <p style={{ maxWidth: 420, margin: "10px auto 0", textAlign: "center", fontSize: 13.5, color: "var(--muted)" }}>
+                If this code isn&rsquo;t entered during account opening, we won&rsquo;t be able to verify that your account
+                was opened through this program — which may result in disqualification from the grant.
+              </p>
+              <p style={{ maxWidth: 420, margin: "10px auto 0", textAlign: "center", fontSize: 13.5, color: "var(--muted)" }}>
+                Once you&rsquo;ve successfully opened your account, check your email for the link to submit your
+                FirstBank SME account details — that&rsquo;s the final step to complete your grant application.
+              </p>
               <a
                 href="https://openaccounts2.firstbanknigeria.com/corporate/"
                 target="_blank"

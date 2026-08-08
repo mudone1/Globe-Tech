@@ -288,6 +288,7 @@ function StaffTable() {
         <table className="w-full text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
             <tr>
+              <th className="px-4 py-3">S/N</th>
               <th className="px-4 py-3">Name</th>
               <th className="px-4 py-3">Tier</th>
               <th className="px-4 py-3">Staff ID</th>
@@ -300,7 +301,7 @@ function StaffTable() {
               <>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-t border-line">
-                    {Array.from({ length: 5 }).map((_, j) => (
+                    {Array.from({ length: 6 }).map((_, j) => (
                       <td key={j} className="px-4 py-3.5">
                         <Skeleton className="h-3.5 w-full max-w-[130px]" />
                       </td>
@@ -311,14 +312,14 @@ function StaffTable() {
             )}
             {error && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-bad">
+                <td colSpan={6} className="px-4 py-8 text-center text-bad">
                   {error}
                 </td>
               </tr>
             )}
             {rows && !error && filtered?.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-slate">
+                <td colSpan={6} className="px-4 py-8 text-center text-slate">
                   {rows.length === 0
                     ? "No staff yet — staff appear here once they register."
                     : `No staff match "${filter}".`}
@@ -331,6 +332,7 @@ function StaffTable() {
                 className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
                 style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
               >
+                <td className="px-4 py-3 text-slate">{i + 1}</td>
                 <td className="px-4 py-3 font-medium text-ink">{r.fullName}</td>
                 <td className="px-4 py-3 text-slate">
                   {r.tier}

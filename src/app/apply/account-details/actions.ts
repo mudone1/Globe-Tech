@@ -3,6 +3,7 @@
 import { getAdminDb } from "@/lib/firebase-admin";
 import { isPhase2Unlocked, phase2UnlocksAt, PHASE2_STATUS_INFO } from "@/lib/phase2Verification";
 import { getGrantCategory } from "@/lib/grantCategories";
+import { isLikelyPersonName, ACCOUNT_NAME_ERROR } from "@/lib/validation";
 import type { ApplicationRecord } from "@/lib/types";
 
 export type ContinuationStatus =
@@ -54,6 +55,7 @@ export async function submitAccountDetails(
   const num = accountNumber.trim();
   const name = accountName.trim();
   if (!num || !name) return { ok: false, error: "Enter both your account number and account name." };
+  if (!isLikelyPersonName(name)) return { ok: false, error: ACCOUNT_NAME_ERROR };
 
   try {
     const ref = getAdminDb().collection("applications").doc(applicationId);
