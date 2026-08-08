@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { collection, getDocs, doc, updateDoc, query, where } from "firebase/firestore";
+import * as XLSX from "xlsx";
 import { getFirebaseDb } from "@/lib/firebase-client";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
@@ -130,6 +131,27 @@ function Verification() {
     }
   }
 
+  function exportExcel() {
+    const rows = filteredPending.map((a, i) => ({
+      "S/N": i + 1,
+      "Applicant Name": a.applicantName ?? "",
+      "Phone Number": a.phone ?? "",
+      "Staff Code": a.referredBy === "unassigned" ? "Unassigned" : a.referredBy,
+      "Staff Name": staffNameFor(a.referredBy),
+      "Account Name": a.bankAccountName ?? "",
+      "Account Number": a.bankAccountNumber ?? "",
+      "Status": a.phase2VerificationStatus ? PHASE2_STATUS_INFO[a.phase2VerificationStatus].label : "",
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [
+      { wch: 5 }, { wch: 24 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 22 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, "Pending Verification");
+    const date = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `pending-verification-${date}.xlsx`);
+  }
+
   return (
     <div className="mx-auto max-w-5xl">
       <header className="mb-6">
@@ -196,8 +218,19 @@ function Verification() {
 
       <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
         <div className="border-b border-line px-6 py-4">
-          <h2 className="font-display text-base font-semibold text-ink">Pending verification</h2>
-          <p className="mt-1 text-sm text-slate">Applicants who've submitted account details but aren't fully verified yet.</p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-base font-semibold text-ink">Pending verification</h2>
+              <p className="mt-1 text-sm text-slate">Applicants who've submitted account details but aren't fully verified yet.</p>
+            </div>
+            <button
+              onClick={exportExcel}
+              disabled={filteredPending.length === 0}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              Export to Excel
+            </button>
+          </div>
           <input
             className="input mt-3 max-w-xs"
             placeholder="Search name, phone, staff code…"
