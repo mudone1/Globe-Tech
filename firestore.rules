@@ -114,6 +114,15 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // applicationDuplicatesArchive — recoverable backup of duplicate
+    // application records removed by the admin dedup tool (see
+    // src/lib/applicationDedup.ts). Written only server-side via the Admin
+    // SDK; admins can read it to recover a record if a merge was wrong.
+    match /applicationDuplicatesArchive/{applicationId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
     // appSettings — small collection of admin-editable feature toggles.
     // Currently: appSettings/referralLinks, controlling whether staff can see
     // their own referral link on /dashboard (see getMyDashboardData). Read by
