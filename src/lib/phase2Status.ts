@@ -8,8 +8,10 @@ export function phase2UnlocksAt(phase1SubmittedAt: string): Date {
   return d;
 }
 
-export function isPhase2Unlocked(phase1SubmittedAt: string): boolean {
-  return Date.now() >= phase2UnlocksAt(phase1SubmittedAt).getTime();
+export function isPhase2Unlocked(_phase1SubmittedAt: string): boolean {
+  // Waiting period removed — applicants can submit their FirstBank account
+  // details immediately after opening the account, no 48-hour wait.
+  return true;
 }
 
 /**

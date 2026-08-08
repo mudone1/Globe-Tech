@@ -210,6 +210,7 @@ function Payouts() {
         <table className="w-full text-left text-sm">
           <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
             <tr>
+              <th className="px-4 py-3">S/N</th>
               <th className="px-4 py-3">Staff</th>
               <th className="px-4 py-3">Tier</th>
               <th className="px-4 py-3">Completed</th>
@@ -222,14 +223,15 @@ function Payouts() {
           <tbody>
             {apps && rows.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-4 py-8 text-center text-slate">
+                <td colSpan={8} className="px-4 py-8 text-center text-slate">
                   No completed referrals yet.
                 </td>
               </tr>
             )}
-            {rows.map((r) => (
+            {rows.map((r, i) => (
               <Fragment key={r.staffId}>
                 <tr className="border-t border-line hover:bg-paper">
+                  <td className="px-4 py-3 text-slate">{i + 1}</td>
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2.5">
                       <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand/10 font-mono text-xs font-semibold text-brand">
@@ -261,7 +263,7 @@ function Payouts() {
                 </tr>
                 {recordingFor === r.staffId && (
                   <tr className="border-t border-line bg-paper/60">
-                    <td colSpan={7} className="px-4 py-4">
+                    <td colSpan={8} className="px-4 py-4">
                       <div className="flex flex-wrap items-end gap-3">
                         <label className="block">
                           <span className="mb-1.5 block text-xs font-medium text-ink">Amount (₦)</span>

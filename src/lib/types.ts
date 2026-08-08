@@ -69,6 +69,7 @@ export interface ApplicationRecord {
   // Universal (asked regardless of category)
   applicantName: string;
   phone: string;
+  phoneNormalized?: string; // canonical "0XXXXXXXXXX" form of `phone`, for duplicate-detection lookups only — see src/lib/phone.ts
   email: string;
   stateOfResidence: string;
   businessName: string;

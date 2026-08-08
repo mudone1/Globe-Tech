@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
 import Image from "next/image";
-import { recordVisit, submitApplication } from "@/app/apply/[token]/actions";
+import { useRouter } from "next/navigation";
+import { recordVisit, submitApplication, checkExistingApplication, getGrantCodePreview } from "@/app/apply/[token]/actions";
 import { GRANT_CATEGORIES, DRAW_INFO, type GrantTier } from "@/lib/grantCategories";
-import { getGrantQuestions, DECLARATION_TEXT, type GrantQuestion } from "@/lib/grantQuestions";
+import { getGrantQuestions, DECLARATION_TEXT, PHONE_QUESTION, type GrantQuestion } from "@/lib/grantQuestions";
+import { GLOBETECH_WEBSITE_URL } from "@/lib/site";
 import type { GrantCategoryId } from "@/lib/types";
 import styles from "@/components/ChatApplicationForm.module.css";
 
@@ -16,7 +18,13 @@ interface TranscriptItem {
   text: string;
 }
 
-type Stage = "category" | "questions" | "summary" | "submitting" | "done";
+type Stage = "intro" | "category" | "phone" | "questions" | "summary" | "confirmCode" | "submitting" | "done";
+
+// Bump this if SavedDraft's shape changes in a way that would misalign an
+// in-flight draft against the current question list (e.g. this deploy,
+// which moved phone out of the chat-style questions into its own stage) —
+// old, unversioned drafts are discarded rather than resumed incorrectly.
+const DRAFT_VERSION = 2;
 
 function required(q: GrantQuestion): boolean {
   return q.required ?? true;
@@ -33,6 +41,7 @@ interface Props {
 }
 
 interface SavedDraft {
+  version: number;
   categoryId: GrantCategoryId;
   answers: Answers;
   qIndex: number;
@@ -42,7 +51,9 @@ interface SavedDraft {
 }
 
 export default function ApplicationForm({ token }: Props) {
-  const [stage, setStage] = useState<Stage>("category");
+  const router = useRouter();
+  const [stage, setStage] = useState<Stage>("intro");
+  const [readMoreOpen, setReadMoreOpen] = useState(false);
   const [categoryId, setCategoryId] = useState<GrantCategoryId | null>(null);
   const [questions, setQuestions] = useState<GrantQuestion[]>([]);
   const [answers, setAnswers] = useState<Answers>({});
@@ -54,6 +65,9 @@ export default function ApplicationForm({ token }: Props) {
   const [grantCode, setGrantCode] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [draft, setDraft] = useState<SavedDraft | null>(null);
+  const [phoneChecking, setPhoneChecking] = useState(false);
+  const [phoneCheckError, setPhoneCheckError] = useState<string | null>(null);
+  const [confirmInput, setConfirmInput] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const draftKey = `gt_application_draft_${token}`;
 
@@ -70,8 +84,19 @@ export default function ApplicationForm({ token }: Props) {
       const raw = window.localStorage.getItem(draftKey);
       if (raw) {
         const parsed: SavedDraft = JSON.parse(raw);
-        if (parsed && parsed.categoryId && parsed.transcript?.length > 0 && parsed.stage !== "done") {
+        if (
+          parsed &&
+          parsed.version === DRAFT_VERSION &&
+          parsed.categoryId &&
+          parsed.transcript?.length > 0 &&
+          parsed.stage !== "done"
+        ) {
           setDraft(parsed);
+          setStage("category"); // skip the intro screen for a returning applicant
+        } else if (raw) {
+          // Old-schema or corrupt draft — discard rather than risk resuming
+          // misaligned against the current question set.
+          window.localStorage.removeItem(draftKey);
         }
       }
     } catch {
@@ -88,7 +113,7 @@ export default function ApplicationForm({ token }: Props) {
       if (stage === "done") {
         window.localStorage.removeItem(draftKey);
       } else if (categoryId) {
-        const payload: SavedDraft = { categoryId, answers, qIndex, transcript, stage, savedAt: Date.now() };
+        const payload: SavedDraft = { version: DRAFT_VERSION, categoryId, answers, qIndex, transcript, stage, savedAt: Date.now() };
         window.localStorage.setItem(draftKey, JSON.stringify(payload));
       }
     } catch {
@@ -130,9 +155,13 @@ export default function ApplicationForm({ token }: Props) {
     const qs = getGrantQuestions(tier);
     setCategoryId(id);
     setQuestions(qs);
-    setStage("questions");
-    setQIndex(0);
-    askQuestion(0, qs);
+    setStage("phone");
+    setPhoneCheckError(null);
+    setTyping(true);
+    setTimeout(() => {
+      setTyping(false);
+      setTranscript((t) => [...t, { who: "bot", text: PHONE_QUESTION.question }]);
+    }, 450 + Math.random() * 300);
   }
 
   function askQuestion(idx: number, qs: GrantQuestion[]) {
@@ -142,6 +171,33 @@ export default function ApplicationForm({ token }: Props) {
       setTyping(false);
       setTranscript((t) => [...t, { who: "bot", text: q.question }]);
     }, 450 + Math.random() * 300);
+  }
+
+  // Phone is asked as its own stage, right after category selection —
+  // checked against existing applications before the applicant proceeds any
+  // further, so a returning applicant is routed to the FirstBank completion
+  // page instead of starting a duplicate application.
+  async function handlePhoneAnswer(_id: string, value: FieldValue, display: string) {
+    const phone = String(value ?? "");
+    setTranscript((t) => [...t, { who: "user", text: display }]);
+    setPhoneChecking(true);
+    setPhoneCheckError(null);
+    try {
+      const result = await checkExistingApplication(phone);
+      if (result.exists) {
+        router.push(`/apply/account-details/${result.applicationId}?returning=1&token=${encodeURIComponent(token)}`);
+        return; // stay on this stage while navigation happens
+      }
+      setAnswers((a) => ({ ...a, phone }));
+      setStage("questions");
+      setQIndex(0);
+      askQuestion(0, questions);
+    } catch {
+      setTranscript((t) => t.slice(0, -1)); // drop the just-added answer bubble so they can retry cleanly
+      setPhoneCheckError("Something went wrong checking your number. Please try again.");
+    } finally {
+      setPhoneChecking(false);
+    }
   }
 
   function submitAnswer(id: string, value: FieldValue, display: string) {
@@ -166,6 +222,11 @@ export default function ApplicationForm({ token }: Props) {
   }
 
   function goBack() {
+    if (stage === "confirmCode") {
+      setConfirmInput("");
+      setStage("summary");
+      return;
+    }
     if (stage === "summary") {
       setTranscript((t) => t.slice(0, -1));
       setStage("questions");
@@ -173,17 +234,33 @@ export default function ApplicationForm({ token }: Props) {
     }
     if (stage === "questions") {
       if (qIndex === 0) {
-        setStage("category");
-        setTranscript([]);
-        setQIndex(0);
-        setCategoryId(null);
-        setAnswers({});
+        setTranscript((t) => t.slice(0, -1)); // drop the just-asked first question, keep the phone Q&A visible
+        setStage("phone");
         return;
       }
       setTranscript((t) => t.slice(0, -2));
       setQIndex((i) => i - 1);
     }
+    if (stage === "phone") {
+      setStage("category");
+      setTranscript([]);
+      setQIndex(0);
+      setCategoryId(null);
+      setAnswers({});
+      setPhoneCheckError(null);
+    }
   }
+
+  // Grant Code preview, fetched as soon as the applicant reaches the summary
+  // screen so it's ready by the time they click through to confirm it —
+  // display-only, submitApplication recomputes the authoritative value.
+  useEffect(() => {
+    if (stage === "summary" && grantCode === null) {
+      getGrantCodePreview(token)
+        .then(setGrantCode)
+        .catch(() => setGrantCode("unassigned"));
+    }
+  }, [stage, grantCode, token]);
 
   async function finalSubmit() {
     if (!category) return;
@@ -230,15 +307,20 @@ export default function ApplicationForm({ token }: Props) {
   }
 
   const progressPct =
-    stage === "category"
+    stage === "intro" || stage === "category"
       ? 0
-      : stage === "questions"
-        ? 5 + (qIndex / Math.max(questions.length, 1)) * 89
-        : stage === "summary" || stage === "submitting"
-          ? 96
-          : 100;
+      : stage === "phone"
+        ? 3
+        : stage === "questions"
+          ? 6 + (qIndex / Math.max(questions.length, 1)) * 85
+          : stage === "summary"
+            ? 93
+            : stage === "confirmCode" || stage === "submitting"
+              ? 97
+              : 100;
 
-  const headerLabel = stage === "category" ? "Choose a grant" : category ? category.name : "Application";
+  const headerLabel =
+    stage === "intro" ? "Welcome" : stage === "category" ? "Choose a grant" : category ? category.name : "Application";
 
   return (
     <div className={styles.page}>
@@ -247,7 +329,7 @@ export default function ApplicationForm({ token }: Props) {
           <button
             className={styles.backBtn}
             onClick={goBack}
-            disabled={stage === "category" || stage === "done" || stage === "submitting"}
+            disabled={stage === "intro" || stage === "category" || stage === "done" || stage === "submitting"}
             title="Back"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -269,6 +351,44 @@ export default function ApplicationForm({ token }: Props) {
         </div>
 
         <div className={styles.thread}>
+          {stage === "intro" && (
+            <div className={styles.welcomeHero}>
+              <h1>Welcome to Globe-Tech.</h1>
+              <p>
+                Globe-Tech runs an SME Grant &amp; Business Support Program that helps small business
+                owners and aspiring entrepreneurs across Nigeria access funding and open a dedicated
+                FirstBank SME account. Grants are awarded by random draw from eligible applicants
+                every quarter.
+              </p>
+              {!readMoreOpen ? (
+                <div className={styles.rowActions} style={{ maxWidth: 320, margin: "16px auto 0" }}>
+                  <button className={`${styles.btn} ${styles.btnGhost}`} style={{ flex: 1 }} onClick={() => setReadMoreOpen(true)}>
+                    Read more
+                  </button>
+                </div>
+              ) : (
+                <div style={{ margin: "16px auto 0", maxWidth: 480 }}>
+                  <iframe
+                    src={GLOBETECH_WEBSITE_URL}
+                    title="About Globe-Tech"
+                    style={{ width: "100%", height: 340, border: "1px solid var(--line, #e5e5e5)", borderRadius: 10 }}
+                  />
+                  <p style={{ marginTop: 8, textAlign: "center", fontSize: 12.5, color: "var(--muted)" }}>
+                    Page not loading above?{" "}
+                    <a href={GLOBETECH_WEBSITE_URL} target="_blank" rel="noopener noreferrer" style={{ color: "var(--gold)" }}>
+                      Open in a new tab →
+                    </a>
+                  </p>
+                </div>
+              )}
+              <div className={styles.rowActions} style={{ maxWidth: 320, margin: "16px auto 0" }}>
+                <button className={`${styles.btn} ${styles.btnPrimary}`} style={{ flex: 1 }} onClick={() => setStage("category")}>
+                  Continue to application →
+                </button>
+              </div>
+            </div>
+          )}
+
           {stage === "category" && draft && (
             <div className={styles.welcomeHero}>
               <h1>Welcome back — we can continue from where you stopped.</h1>
@@ -314,7 +434,8 @@ export default function ApplicationForm({ token }: Props) {
             </>
           )}
 
-          {stage !== "category" &&
+          {stage !== "intro" &&
+            stage !== "category" &&
             transcript.map((item, i) => (
               <div key={i} className={`${styles.row} ${item.who === "bot" ? styles.rowBot : styles.rowUser}`}>
                 {item.who === "bot" && <div className={styles.avatar}>GT</div>}
@@ -323,7 +444,7 @@ export default function ApplicationForm({ token }: Props) {
               </div>
             ))}
 
-          {typing && (
+          {(typing || phoneChecking) && (
             <div className={`${styles.row} ${styles.rowBot}`}>
               <div className={styles.avatar}>GT</div>
               <div className={`${styles.bubble} ${styles.botBubble} ${styles.typingBubble}`}>
@@ -334,7 +455,7 @@ export default function ApplicationForm({ token }: Props) {
             </div>
           )}
 
-          {(stage === "summary" || stage === "submitting") && !typing && category && (
+          {(stage === "summary" || stage === "confirmCode" || stage === "submitting") && !typing && category && (
             <div className={`${styles.row} ${styles.rowBot}`}>
               <div className={styles.avatar}>GT</div>
               <div className={styles.summaryCard}>
@@ -363,6 +484,27 @@ export default function ApplicationForm({ token }: Props) {
             </div>
           )}
 
+          {(stage === "confirmCode" || stage === "submitting") && !typing && (
+            <div className={`${styles.row} ${styles.rowBot}`}>
+              <div className={styles.avatar}>GT</div>
+              <div className={styles.summaryCard}>
+                <p style={{ fontWeight: 700 }}>
+                  This is your Grant Code. Please copy and keep it safe. You will need to enter this code when
+                  opening your First Bank SME account.
+                </p>
+                <div className={styles.codeBlock}>
+                  <p className={styles.label}>Your Grant Code</p>
+                  <p className={styles.code}>{grantCode ?? "…"}</p>
+                </div>
+                <div className={styles.rowActions} style={{ maxWidth: 320, margin: "12px auto 0" }}>
+                  <button className={`${styles.btn} ${styles.btnGhost}`} style={{ flex: 1 }} onClick={copyCode}>
+                    {copied ? "Copied ✓" : "Copy code"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {stage === "done" && category && (
             <div className={styles.doneScreen}>
               <div className={styles.doneBadge}>✓</div>
@@ -371,8 +513,7 @@ export default function ApplicationForm({ token }: Props) {
                 Your application for the <strong>{category.name}</strong> (₦{category.amount.toLocaleString()}) has
                 been received. Recipients are chosen by random draw each quarter, so there&rsquo;s nothing more to
                 do on that front. Check your email for the next step — opening your FirstBank account — we&rsquo;ve
-                sent a full walkthrough to <strong>{answers.email as string}</strong>. Enter the code below in the{" "}
-                <strong>Additional Information</strong> box on FirstBank&rsquo;s account-opening form.
+                sent a full walkthrough to <strong>{answers.email as string}</strong>.
               </p>
               <div className={styles.codeBlock}>
                 <p className={styles.label}>Your Grant Code</p>
@@ -383,6 +524,17 @@ export default function ApplicationForm({ token }: Props) {
                   {copied ? "Copied ✓" : "Copy code"}
                 </button>
               </div>
+              <p style={{ fontWeight: 700, maxWidth: 420, margin: "16px auto 0", textAlign: "center" }}>
+                Enter this code in the <strong>Additional Information</strong> box on FirstBank&rsquo;s account-opening form.
+              </p>
+              <p style={{ maxWidth: 420, margin: "10px auto 0", textAlign: "center", fontSize: 13.5, color: "var(--muted)" }}>
+                If this code isn&rsquo;t entered during account opening, we won&rsquo;t be able to verify that your account
+                was opened through this program — which may result in disqualification from the grant.
+              </p>
+              <p style={{ maxWidth: 420, margin: "10px auto 0", textAlign: "center", fontSize: 13.5, color: "var(--muted)" }}>
+                Once you&rsquo;ve successfully opened your account, check your email for the link to submit your
+                FirstBank SME account details — that&rsquo;s the final step to complete your grant application.
+              </p>
               <a
                 href="https://openaccounts2.firstbanknigeria.com/corporate/"
                 target="_blank"
@@ -411,6 +563,17 @@ export default function ApplicationForm({ token }: Props) {
             </div>
           )}
 
+          {stage === "phone" && !typing && !phoneChecking && (
+            <>
+              <Composer key="phone" q={PHONE_QUESTION} onAnswer={handlePhoneAnswer} />
+              {phoneCheckError && (
+                <p className={styles.errorText} style={{ textAlign: "center", marginTop: 4 }}>
+                  {phoneCheckError}
+                </p>
+              )}
+            </>
+          )}
+
           {stage === "questions" && !typing && questions[qIndex] && (
             <Composer key={qIndex} q={questions[qIndex]!} onAnswer={submitAnswer} />
           )}
@@ -433,12 +596,47 @@ export default function ApplicationForm({ token }: Props) {
                 >
                   ← Edit answers
                 </button>
-                <button className={`${styles.btn} ${styles.btnPrimary}`} onClick={finalSubmit}>
-                  Submit application →
+                <button
+                  className={`${styles.btn} ${styles.btnPrimary}`}
+                  onClick={() => {
+                    setConfirmInput("");
+                    setStage("confirmCode");
+                  }}
+                >
+                  Continue →
                 </button>
               </div>
             </div>
           )}
+
+          {stage === "confirmCode" &&
+            !typing &&
+            (() => {
+              const trimmedInput = confirmInput.trim();
+              const codesMatch = trimmedInput !== "" && trimmedInput.toLowerCase() === (grantCode ?? "").trim().toLowerCase();
+              return (
+                <div className={styles.composerInner}>
+                  <input
+                    className={styles.field}
+                    placeholder="Paste or type your Grant Code"
+                    value={confirmInput}
+                    onChange={(e) => setConfirmInput(e.target.value)}
+                    autoFocus
+                  />
+                  {trimmedInput !== "" && !codesMatch && (
+                    <p className={styles.errorText}>That doesn&rsquo;t match your Grant Code above — check and try again.</p>
+                  )}
+                  <div className={styles.rowActions}>
+                    <button className={`${styles.btn} ${styles.btnGhost}`} onClick={goBack}>
+                      ← Back
+                    </button>
+                    <button className={`${styles.btn} ${styles.btnPrimary}`} disabled={!codesMatch} onClick={finalSubmit}>
+                      Submit application →
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
 
           {stage === "submitting" && (
             <div className={styles.composerInner}>

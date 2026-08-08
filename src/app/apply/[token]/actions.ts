@@ -5,9 +5,72 @@ import { getAdminDb } from "@/lib/firebase-admin";
 import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
 import { sendGrantCodeEmail } from "@/lib/email";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
+import { normalizeNigerianPhone } from "@/lib/phone";
 import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
 
 const REF_COOKIE = "gt_ref_token";
+
+/**
+ * Looks up an existing application by phone number (normalized first, then
+ * a raw-string fallback for records written before phoneNormalized existed).
+ * Never throws — a lookup failure degrades to "not found" so the applicant
+ * can still proceed rather than getting stuck.
+ */
+async function findApplicationByPhone(phone: string): Promise<ApplicationRecord | null> {
+  try {
+    const db = getAdminDb();
+    const normalized = normalizeNigerianPhone(phone);
+
+    if (normalized) {
+      const byNormalized = await db.collection("applications").where("phoneNormalized", "==", normalized).limit(1).get();
+      if (!byNormalized.empty) return byNormalized.docs[0]!.data() as ApplicationRecord;
+    }
+
+    // Fallback for pre-existing records that don't have phoneNormalized
+    // backfilled yet — matches on whatever raw string the applicant typed.
+    const raw = phone.trim();
+    if (raw) {
+      const byRaw = await db.collection("applications").where("phone", "==", raw).limit(1).get();
+      if (!byRaw.empty) return byRaw.docs[0]!.data() as ApplicationRecord;
+    }
+
+    return null;
+  } catch (err) {
+    console.error("findApplicationByPhone failed:", err);
+    return null;
+  }
+}
+
+export type CheckExistingApplicationResult =
+  | { exists: false }
+  | { exists: true; applicationId: string };
+
+/**
+ * Called right after the applicant enters their phone number (before the
+ * rest of the form), so a returning applicant gets routed to the FirstBank
+ * completion page instead of starting a brand-new application.
+ */
+export async function checkExistingApplication(phone: string): Promise<CheckExistingApplicationResult> {
+  const existing = await findApplicationByPhone(phone);
+  if (!existing) return { exists: false };
+  return { exists: true, applicationId: existing.applicationId };
+}
+
+/**
+ * Preview of the Grant Code shown before final submission, so the applicant
+ * can copy/confirm it ahead of time. Uses the exact same resolution logic
+ * submitApplication uses for the authoritative write — this is display-only,
+ * never trusted as the actual value written to Firestore.
+ */
+export async function getGrantCodePreview(token: string): Promise<string> {
+  let staffId = await resolveStaffIdFromToken(token);
+  if (!staffId) {
+    const store = await cookies();
+    const cookieToken = store.get(REF_COOKIE)?.value;
+    staffId = await resolveStaffIdFromToken(cookieToken);
+  }
+  return staffId ?? "unassigned";
+}
 
 /**
  * Called once on page load (client useEffect) to persist the token in a
@@ -130,6 +193,17 @@ export async function submitApplication(
     return { ok: false, error: "Please enter a valid phone number." };
   }
 
+  // Backend safety net against duplicates — the primary check already
+  // happened at the phone-entry stage before this form was even shown, but
+  // this guards against races and any client that bypasses that stage.
+  const existing = await findApplicationByPhone(input.phone);
+  if (existing) {
+    return {
+      ok: false,
+      error: "An application already exists for this phone number. Please use the link you were sent to complete it.",
+    };
+  }
+
   // Resolve fresh from the token — don't trust anything the client claims
   // about who referred them. Fall back to the cookie if the token itself
   // is missing (e.g. a future multi-step flow that drops the URL segment).
@@ -157,6 +231,7 @@ export async function submitApplication(
 
     applicantName: input.applicantName.trim(),
     phone: input.phone.trim(),
+    ...(normalizeNigerianPhone(input.phone) ? { phoneNormalized: normalizeNigerianPhone(input.phone)! } : {}),
     email: input.email.trim().toLowerCase(),
     stateOfResidence: input.stateOfResidence,
     businessName: input.businessName.trim(),

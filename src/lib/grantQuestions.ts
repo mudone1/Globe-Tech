@@ -13,12 +13,24 @@ export interface GrantQuestion {
   required?: boolean; // defaults to true
 }
 
+// Its own stage now (see note above) but reuses the exact same Composer
+// field shape/validation as any other question in this list.
+export const PHONE_QUESTION: GrantQuestion = {
+  id: "phone",
+  type: "tel",
+  label: "Phone number",
+  question: "First, what's your phone number?",
+  placeholder: "08012345678",
+};
+
 export const DECLARATION_TEXT =
   "I confirm that the information provided in this application is accurate and complete. I understand that submission does not guarantee funding — recipients are selected by random draw from eligible applicants every quarter — and that I may be contacted for further verification.";
 
+// Note: phone is intentionally NOT in this list — it's asked as its own
+// stage immediately after grant category selection (see ApplicationForm's
+// "phone" stage), before the rest of these chat-style questions begin.
 const UNIVERSAL: GrantQuestion[] = [
   { id: "applicantName", type: "text", label: "Full name", question: "Let's get started — what's your full name?" },
-  { id: "phone", type: "tel", label: "Phone number", question: "Your phone number?", placeholder: "08012345678" },
   { id: "email", type: "email", label: "Email address", question: "And your email address?" },
   { id: "stateOfResidence", type: "select", label: "State of residence", question: "Which state do you live in?", options: NIGERIA_STATES },
   { id: "businessName", type: "text", label: "Business name", question: "What's your business called?" },

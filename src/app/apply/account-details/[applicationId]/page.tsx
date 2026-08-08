@@ -1,9 +1,13 @@
 "use client";
 
-import { useEffect, useState, use as usePromise } from "react";
+import { useEffect, useState, Suspense, use as usePromise } from "react";
 import Image from "next/image";
+import { useSearchParams } from "next/navigation";
 import { getContinuationStatus, submitAccountDetails, type ContinuationStatus } from "@/app/apply/account-details/actions";
+import { isLikelyPersonName, ACCOUNT_NAME_ERROR } from "@/lib/validation";
 import styles from "@/components/ChatApplicationForm.module.css";
+
+const FIRST_BANK_SIGNUP_URL = "https://openaccounts2.firstbanknigeria.com/corporate/";
 
 function timeRemaining(unlocksAt: string): string {
   const ms = new Date(unlocksAt).getTime() - Date.now();
@@ -16,10 +20,18 @@ function timeRemaining(unlocksAt: string): string {
 
 export default function AccountDetailsPage({ params }: { params: Promise<{ applicationId: string }> }) {
   const { applicationId } = usePromise(params);
-  return <AccountDetails applicationId={applicationId} />;
+  return (
+    <Suspense fallback={<div className={styles.page} />}>
+      <AccountDetails applicationId={applicationId} />
+    </Suspense>
+  );
 }
 
 function AccountDetails({ applicationId }: { applicationId: string }) {
+  const searchParams = useSearchParams();
+  const isReturning = searchParams.get("returning") === "1";
+  const referralToken = searchParams.get("token");
+
   const [status, setStatus] = useState<ContinuationStatus | null>(null);
   const [accountNumber, setAccountNumber] = useState("");
   const [accountName, setAccountName] = useState("");
@@ -34,6 +46,10 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
   async function handleSubmit() {
     if (!accountNumber.trim() || !accountName.trim()) {
       setError("Enter both your account number and account name.");
+      return;
+    }
+    if (!isLikelyPersonName(accountName)) {
+      setError(ACCOUNT_NAME_ERROR);
       return;
     }
     setSubmitting(true);
@@ -74,6 +90,13 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
 
           {status && status.ok && (
             <>
+              {isReturning && (
+                <div className={styles.statusCard} style={{ marginBottom: 16 }}>
+                  <p className={styles.statusLabel}>Already registered</p>
+                  <h2>You&rsquo;ve already registered — here&rsquo;s your application.</h2>
+                </div>
+              )}
+
               <div className={styles.welcomeHero}>
                 <h1>Hi {status.applicantName.split(/\s+/)[0]},</h1>
                 <p>
@@ -127,25 +150,52 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
                     </div>
                     {error && <p className={styles.errorText}>{error}</p>}
                   </div>
+                  <a
+                    href={FIRST_BANK_SIGNUP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${styles.btn} ${styles.btnGhost}`}
+                    style={{ display: "block", textAlign: "center", maxWidth: 420, margin: "12px auto 0", textDecoration: "none" }}
+                  >
+                    If you haven&rsquo;t opened your FirstBank SME account, click here to open one →
+                  </a>
+                  {referralToken && (
+                    <div style={{ textAlign: "center", marginTop: 16 }}>
+                      <a href={`/apply/${referralToken}`} style={{ fontSize: 12.5, color: "var(--muted)", textDecoration: "underline" }}>
+                        Not you, or think this is a mistake? Start again
+                      </a>
+                    </div>
+                  )}
                 </>
               )}
 
               {(status.accountDetailsSubmitted || submitted) && (
-                <div className={styles.statusCard}>
-                  <p className={styles.statusLabel}>{submitted ? "Awaiting Verification" : status.verificationLabel}</p>
-                  <h2>
-                    {submitted
-                      ? "Got it — thanks!"
-                      : status.verificationLabel === "Completed"
-                        ? "You're fully verified 🎉"
-                        : "Still checking"}
-                  </h2>
-                  <p>
-                    {submitted
-                      ? "We've saved your account details. We'll verify them against FirstBank's records and let you know."
-                      : status.verificationDescription}
-                  </p>
-                </div>
+                <>
+                  <div className={styles.statusCard}>
+                    <p className={styles.statusLabel}>{submitted ? "Awaiting Verification" : status.verificationLabel}</p>
+                    <h2>
+                      {submitted
+                        ? "Got it — thanks!"
+                        : status.verificationLabel === "Completed"
+                          ? "You're fully verified 🎉"
+                          : "Still checking"}
+                    </h2>
+                    <p>
+                      {submitted
+                        ? "We've saved your account details. We'll verify them against FirstBank's records and let you know."
+                        : status.verificationDescription}
+                    </p>
+                  </div>
+                  <a
+                    href={FIRST_BANK_SIGNUP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${styles.btn} ${styles.btnGhost}`}
+                    style={{ display: "block", textAlign: "center", maxWidth: 420, margin: "12px auto 0", textDecoration: "none" }}
+                  >
+                    If you haven&rsquo;t opened your FirstBank SME account, click here to open one →
+                  </a>
+                </>
               )}
             </>
           )}
