@@ -184,9 +184,17 @@ export default function ApplicationForm({ token }: Props) {
     setPhoneCheckError(null);
     try {
       const result = await checkExistingApplication(phone);
-      if (result.exists) {
+      if (result.exists === true) {
         router.push(`/apply/account-details/${result.applicationId}?returning=1&token=${encodeURIComponent(token)}`);
         return; // stay on this stage while navigation happens
+      }
+      if (result.exists === "unknown") {
+        // Fail closed — we couldn't confirm this phone is new, so don't let
+        // them proceed as if it were. Let them retry instead of risking a
+        // duplicate application.
+        setTranscript((t) => t.slice(0, -1));
+        setPhoneCheckError("Something went wrong checking your number. Please try again.");
+        return;
       }
       setAnswers((a) => ({ ...a, phone }));
       setStage("questions");

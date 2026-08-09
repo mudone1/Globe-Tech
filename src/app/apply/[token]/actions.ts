@@ -13,47 +13,63 @@ const REF_COOKIE = "gt_ref_token";
 /**
  * Looks up an existing application by phone number (normalized first, then
  * a raw-string fallback for records written before phoneNormalized existed).
- * Never throws — a lookup failure degrades to "not found" so the applicant
- * can still proceed rather than getting stuck.
+ * Throws on failure — callers must NOT treat a failed lookup as "not found",
+ * since that would fail OPEN and let a returning applicant slip through to a
+ * duplicate registration. One retry after a short delay absorbs the common
+ * case of a transient Firestore blip (e.g. momentary quota/rate pressure).
  */
+async function findApplicationByPhoneOnce(phone: string): Promise<ApplicationRecord | null> {
+  const db = getAdminDb();
+  const normalized = normalizeNigerianPhone(phone);
+
+  if (normalized) {
+    const byNormalized = await db.collection("applications").where("phoneNormalized", "==", normalized).limit(1).get();
+    if (!byNormalized.empty) return byNormalized.docs[0]!.data() as ApplicationRecord;
+  }
+
+  // Fallback for pre-existing records that don't have phoneNormalized
+  // backfilled yet — matches on whatever raw string the applicant typed.
+  const raw = phone.trim();
+  if (raw) {
+    const byRaw = await db.collection("applications").where("phone", "==", raw).limit(1).get();
+    if (!byRaw.empty) return byRaw.docs[0]!.data() as ApplicationRecord;
+  }
+
+  return null;
+}
+
 async function findApplicationByPhone(phone: string): Promise<ApplicationRecord | null> {
   try {
-    const db = getAdminDb();
-    const normalized = normalizeNigerianPhone(phone);
-
-    if (normalized) {
-      const byNormalized = await db.collection("applications").where("phoneNormalized", "==", normalized).limit(1).get();
-      if (!byNormalized.empty) return byNormalized.docs[0]!.data() as ApplicationRecord;
-    }
-
-    // Fallback for pre-existing records that don't have phoneNormalized
-    // backfilled yet — matches on whatever raw string the applicant typed.
-    const raw = phone.trim();
-    if (raw) {
-      const byRaw = await db.collection("applications").where("phone", "==", raw).limit(1).get();
-      if (!byRaw.empty) return byRaw.docs[0]!.data() as ApplicationRecord;
-    }
-
-    return null;
+    return await findApplicationByPhoneOnce(phone);
   } catch (err) {
-    console.error("findApplicationByPhone failed:", err);
-    return null;
+    console.error("findApplicationByPhone: first attempt failed, retrying once:", err);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return await findApplicationByPhoneOnce(phone); // let a second failure propagate — caller must fail closed
   }
 }
 
 export type CheckExistingApplicationResult =
   | { exists: false }
-  | { exists: true; applicationId: string };
+  | { exists: true; applicationId: string }
+  | { exists: "unknown" }; // lookup failed after retrying — caller must NOT treat this as "not found"
 
 /**
  * Called right after the applicant enters their phone number (before the
  * rest of the form), so a returning applicant gets routed to the FirstBank
- * completion page instead of starting a brand-new application.
+ * completion page instead of starting a brand-new application. Fails
+ * CLOSED: if the lookup itself can't be completed, this returns
+ * exists: "unknown" rather than exists: false, so the caller blocks and lets
+ * the applicant retry instead of silently starting a duplicate registration.
  */
 export async function checkExistingApplication(phone: string): Promise<CheckExistingApplicationResult> {
-  const existing = await findApplicationByPhone(phone);
-  if (!existing) return { exists: false };
-  return { exists: true, applicationId: existing.applicationId };
+  try {
+    const existing = await findApplicationByPhone(phone);
+    if (!existing) return { exists: false };
+    return { exists: true, applicationId: existing.applicationId };
+  } catch (err) {
+    console.error("checkExistingApplication: lookup failed after retry:", err);
+    return { exists: "unknown" };
+  }
 }
 
 /**
@@ -196,7 +212,15 @@ export async function submitApplication(
   // Backend safety net against duplicates — the primary check already
   // happened at the phone-entry stage before this form was even shown, but
   // this guards against races and any client that bypasses that stage.
-  const existing = await findApplicationByPhone(input.phone);
+  // Fails closed: if the lookup itself can't be completed, reject the
+  // submission rather than risk silently creating a duplicate.
+  let existing: ApplicationRecord | null;
+  try {
+    existing = await findApplicationByPhone(input.phone);
+  } catch (err) {
+    console.error("submitApplication: duplicate-phone check failed:", err);
+    return { ok: false, error: "Something went wrong checking your phone number. Please try again in a moment." };
+  }
   if (existing) {
     return {
       ok: false,
