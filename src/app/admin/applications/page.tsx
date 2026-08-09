@@ -167,6 +167,7 @@ function ApplicationsBrowser() {
             <tr>
               <th className="px-4 py-3">S/N</th>
               <th className="px-4 py-3">Applicant</th>
+              <th className="px-4 py-3">Phone</th>
               <th className="px-4 py-3">Business</th>
               <th className="px-4 py-3">Grant category</th>
               <th className="px-4 py-3">State</th>
@@ -181,7 +182,7 @@ function ApplicationsBrowser() {
               <>
                 {Array.from({ length: 6 }).map((_, i) => (
                   <tr key={i} className="border-t border-line">
-                    {Array.from({ length: 9 }).map((_, j) => (
+                    {Array.from({ length: 10 }).map((_, j) => (
                       <td key={j} className="px-4 py-3.5">
                         <Skeleton className="h-3.5 w-full max-w-[110px]" />
                       </td>
@@ -192,14 +193,14 @@ function ApplicationsBrowser() {
             )}
             {error && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-bad">
+                <td colSpan={10} className="px-4 py-8 text-center text-bad">
                   {error}
                 </td>
               </tr>
             )}
             {apps && !error && pageRows.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate">
+                <td colSpan={10} className="px-4 py-8 text-center text-slate">
                   {apps.length === 0 ? "No applications yet." : "No applications match your filters."}
                 </td>
               </tr>
@@ -224,6 +225,7 @@ function ApplicationsBrowser() {
                       <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-medium text-gold">Test</span>
                     )}
                   </td>
+                  <td className="px-4 py-3 text-slate">{a.phone || "—"}</td>
                   <td className="px-4 py-3 text-slate">{a.businessName || "—"}</td>
                   <td className="px-4 py-3 text-slate">{a.grantCategory ? getGrantCategory(a.grantCategory).name : "—"}</td>
                   <td className="px-4 py-3 text-slate">{a.stateOfResidence || "—"}</td>
