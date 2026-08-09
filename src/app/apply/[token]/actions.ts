@@ -13,10 +13,9 @@ const REF_COOKIE = "gt_ref_token";
 /**
  * Looks up an existing application by phone number (normalized first, then
  * a raw-string fallback for records written before phoneNormalized existed).
- * Throws on failure — callers must NOT treat a failed lookup as "not found",
- * since that would fail OPEN and let a returning applicant slip through to a
- * duplicate registration. One retry after a short delay absorbs the common
- * case of a transient Firestore blip (e.g. momentary quota/rate pressure).
+ * One retry after a short delay absorbs a transient Firestore blip. Throws
+ * if both attempts fail — callers decide how to handle that (see
+ * checkExistingApplication below: deliberately fails OPEN, not closed).
  */
 async function findApplicationByPhoneOnce(phone: string): Promise<ApplicationRecord | null> {
   const db = getAdminDb();
@@ -44,22 +43,26 @@ async function findApplicationByPhone(phone: string): Promise<ApplicationRecord 
   } catch (err) {
     console.error("findApplicationByPhone: first attempt failed, retrying once:", err);
     await new Promise((resolve) => setTimeout(resolve, 800));
-    return await findApplicationByPhoneOnce(phone); // let a second failure propagate — caller must fail closed
+    return await findApplicationByPhoneOnce(phone);
   }
 }
 
-export type CheckExistingApplicationResult =
-  | { exists: false }
-  | { exists: true; applicationId: string }
-  | { exists: "unknown" }; // lookup failed after retrying — caller must NOT treat this as "not found"
+export type CheckExistingApplicationResult = { exists: false } | { exists: true; applicationId: string };
 
 /**
  * Called right after the applicant enters their phone number (before the
  * rest of the form), so a returning applicant gets routed to the FirstBank
- * completion page instead of starting a brand-new application. Fails
- * CLOSED: if the lookup itself can't be completed, this returns
- * exists: "unknown" rather than exists: false, so the caller blocks and lets
- * the applicant retry instead of silently starting a duplicate registration.
+ * completion page instead of starting a brand-new application.
+ *
+ * Fails OPEN by design: if the lookup itself can't complete (e.g. a Firestore
+ * outage/quota issue), this reports "not found" rather than blocking the
+ * applicant. Blocking every applicant because a duplicate-check read failed
+ * is worse than occasionally missing a duplicate — a missed duplicate is
+ * fully recoverable later via the /admin/application-dedup cleanup tool,
+ * whereas turning away a real applicant during an outage is not recoverable
+ * at all. This is a deliberate reversal of an earlier fail-closed version
+ * that, in practice, blocked 100% of applicants (new and returning alike)
+ * during a Firestore read-quota outage.
  */
 export async function checkExistingApplication(phone: string): Promise<CheckExistingApplicationResult> {
   try {
@@ -67,8 +70,8 @@ export async function checkExistingApplication(phone: string): Promise<CheckExis
     if (!existing) return { exists: false };
     return { exists: true, applicationId: existing.applicationId };
   } catch (err) {
-    console.error("checkExistingApplication: lookup failed after retry:", err);
-    return { exists: "unknown" };
+    console.error("checkExistingApplication: lookup failed after retry — failing open, applicant proceeds as new:", err);
+    return { exists: false };
   }
 }
 
@@ -212,14 +215,15 @@ export async function submitApplication(
   // Backend safety net against duplicates — the primary check already
   // happened at the phone-entry stage before this form was even shown, but
   // this guards against races and any client that bypasses that stage.
-  // Fails closed: if the lookup itself can't be completed, reject the
-  // submission rather than risk silently creating a duplicate.
-  let existing: ApplicationRecord | null;
+  // Fails OPEN: if the lookup itself can't complete, let the submission
+  // through rather than blocking a real applicant over an unrelated
+  // read-side outage — any duplicate that slips through here is fully
+  // recoverable later via /admin/application-dedup.
+  let existing: ApplicationRecord | null = null;
   try {
     existing = await findApplicationByPhone(input.phone);
   } catch (err) {
-    console.error("submitApplication: duplicate-phone check failed:", err);
-    return { ok: false, error: "Something went wrong checking your phone number. Please try again in a moment." };
+    console.error("submitApplication: duplicate-phone check failed — failing open, submission proceeds:", err);
   }
   if (existing) {
     return {

@@ -183,26 +183,25 @@ export default function ApplicationForm({ token }: Props) {
     setPhoneChecking(true);
     setPhoneCheckError(null);
     try {
+      // checkExistingApplication fails open (reports "not found") if the
+      // lookup itself can't complete, rather than blocking every applicant
+      // over a transient/outage-level Firestore issue — see its doc comment.
       const result = await checkExistingApplication(phone);
-      if (result.exists === true) {
+      if (result.exists) {
         router.push(`/apply/account-details/${result.applicationId}?returning=1&token=${encodeURIComponent(token)}`);
         return; // stay on this stage while navigation happens
-      }
-      if (result.exists === "unknown") {
-        // Fail closed — we couldn't confirm this phone is new, so don't let
-        // them proceed as if it were. Let them retry instead of risking a
-        // duplicate application.
-        setTranscript((t) => t.slice(0, -1));
-        setPhoneCheckError("Something went wrong checking your number. Please try again.");
-        return;
       }
       setAnswers((a) => ({ ...a, phone }));
       setStage("questions");
       setQIndex(0);
       askQuestion(0, questions);
     } catch {
-      setTranscript((t) => t.slice(0, -1)); // drop the just-added answer bubble so they can retry cleanly
-      setPhoneCheckError("Something went wrong checking your number. Please try again.");
+      // checkExistingApplication doesn't throw today, but keep this guard in
+      // case that ever changes — still fail open rather than block.
+      setAnswers((a) => ({ ...a, phone }));
+      setStage("questions");
+      setQIndex(0);
+      askQuestion(0, questions);
     } finally {
       setPhoneChecking(false);
     }
