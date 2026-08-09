@@ -12,9 +12,11 @@ export type ContinuationStatus =
       applicantName: string;
       businessName: string;
       grantCategoryName: string;
+      grantCode: string;
       unlocked: boolean;
       unlocksAt: string;
       accountDetailsSubmitted: boolean;
+      isVerified: boolean;
       verificationLabel?: string;
       verificationDescription?: string;
     }
@@ -35,9 +37,11 @@ export async function getContinuationStatus(applicationId: string): Promise<Cont
       applicantName: app.applicantName,
       businessName: app.businessName,
       grantCategoryName: getGrantCategory(app.grantCategory).name,
+      grantCode: app.grantCode,
       unlocked,
       unlocksAt: phase2UnlocksAt(app.phase1SubmittedAt).toISOString(),
       accountDetailsSubmitted: Boolean(app.accountDetailsSubmittedAt),
+      isVerified: app.phase2VerificationStatus === "completed",
       verificationLabel: info?.label,
       verificationDescription: info?.description,
     };

@@ -38,6 +38,17 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copyCode(code: string) {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      /* clipboard API can fail silently; the code is still visible on screen */
+    }
+  }
 
   useEffect(() => {
     getContinuationStatus(applicationId).then(setStatus);
@@ -119,13 +130,59 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
 
               {status.unlocked && !status.accountDetailsSubmitted && !submitted && (
                 <>
-                  <div className={styles.warningBox}>
+                  <div className={styles.statusCard}>
+                    <p className={styles.statusLabel}>Already applied</p>
+                    <h2>You have already applied for this grant.</h2>
+                    <p>
+                      Your grant application has already been received. Your next step is to submit
+                      your FirstBank SME account details below.
+                    </p>
+                  </div>
+
+                  <div className={styles.codeBlock}>
+                    <p className={styles.label}>Your Grant Code</p>
+                    <p className={styles.code}>{status.grantCode}</p>
+                  </div>
+                  <div className={styles.rowActions} style={{ maxWidth: 320, margin: "12px auto 0" }}>
+                    <button
+                      className={`${styles.btn} ${styles.btnGhost}`}
+                      style={{ flex: 1 }}
+                      onClick={() => copyCode(status.grantCode)}
+                    >
+                      {copied ? "Copied ✓" : "Copy code"}
+                    </button>
+                  </div>
+                  <p
+                    style={{
+                      maxWidth: 420,
+                      margin: "14px auto 0",
+                      textAlign: "center",
+                      fontWeight: 700,
+                      color: "#c0392b",
+                    }}
+                  >
+                    PLEASE NOTE: Copy this Grant Code. You MUST enter this Grant Code in the
+                    &ldquo;Additional Information&rdquo; field when opening your FirstBank SME account.
+                  </p>
+
+                  <div className={styles.warningBox} style={{ marginTop: 16 }}>
                     <b>Warning:</b> You must provide the FirstBank SME account issued to you
                     during the account opening process. Submitting any account other than your
                     official FirstBank SME account will result in automatic disqualification from
                     the grant program.
                   </div>
-                  <div className={styles.composerInner}>
+
+                  <a
+                    href={FIRST_BANK_SIGNUP_URL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`${styles.btn} ${styles.btnPrimary}`}
+                    style={{ display: "block", textAlign: "center", maxWidth: 420, margin: "16px auto 0", textDecoration: "none" }}
+                  >
+                    Open FirstBank SME Account →
+                  </a>
+
+                  <div className={styles.composerInner} style={{ marginTop: 16 }}>
                     <label style={{ display: "block", marginBottom: 12 }}>
                       <span style={{ display: "block", marginBottom: 6, fontSize: 13, color: "var(--muted)" }}>
                         FirstBank account number
@@ -145,20 +202,11 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
                     </label>
                     <div className={styles.rowActions}>
                       <button className={`${styles.btn} ${styles.btnPrimary}`} disabled={submitting} onClick={handleSubmit}>
-                        {submitting ? "Submitting…" : "Submit account details →"}
+                        {submitting ? "Submitting…" : "Submit My FirstBank Account →"}
                       </button>
                     </div>
                     {error && <p className={styles.errorText}>{error}</p>}
                   </div>
-                  <a
-                    href={FIRST_BANK_SIGNUP_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`${styles.btn} ${styles.btnGhost}`}
-                    style={{ display: "block", textAlign: "center", maxWidth: 420, margin: "12px auto 0", textDecoration: "none" }}
-                  >
-                    If you haven&rsquo;t opened your FirstBank SME account, click here to open one →
-                  </a>
                   {referralToken && (
                     <div style={{ textAlign: "center", marginTop: 16 }}>
                       <a href={`/apply/${referralToken}`} style={{ fontSize: 12.5, color: "var(--muted)", textDecoration: "underline" }}>
@@ -169,20 +217,18 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
                 </>
               )}
 
-              {(status.accountDetailsSubmitted || submitted) && (
+              {(status.accountDetailsSubmitted || submitted) && !status.isVerified && (
                 <>
                   <div className={styles.statusCard}>
                     <p className={styles.statusLabel}>{submitted ? "Awaiting Verification" : status.verificationLabel}</p>
-                    <h2>
-                      {submitted
-                        ? "Got it — thanks!"
-                        : status.verificationLabel === "Completed"
-                          ? "You're fully verified 🎉"
-                          : "Still checking"}
-                    </h2>
+                    <h2>Your application has been received.</h2>
+                    <p>
+                      Your application is currently in <strong>Phase 2</strong> and your FirstBank SME
+                      account is awaiting verification.
+                    </p>
                     <p>
                       {submitted
-                        ? "We've saved your account details. We'll verify them against FirstBank's records and let you know."
+                        ? "We've saved your account details and will verify them against FirstBank's records shortly."
                         : status.verificationDescription}
                     </p>
                   </div>
@@ -196,6 +242,19 @@ function AccountDetails({ applicationId }: { applicationId: string }) {
                     If you haven&rsquo;t opened your FirstBank SME account, click here to open one →
                   </a>
                 </>
+              )}
+
+              {status.isVerified && (
+                <div className={styles.statusCard}>
+                  <p className={styles.statusLabel}>Verified</p>
+                  <h2>You have been verified. 🎉</h2>
+                  <p>Your FirstBank SME account has been verified — Phase 2 is complete.</p>
+                  <p>
+                    Every three months, a random draw is conducted from all eligible, verified
+                    applicants. Selected recipients are contacted directly and grants are disbursed.
+                    There&rsquo;s nothing more for you to do — just watch for that contact.
+                  </p>
+                </div>
               )}
             </>
           )}
