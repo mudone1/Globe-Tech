@@ -62,6 +62,12 @@ export type GrantCategoryId = "emerging" | "development" | "expansion" | "growth
 export interface ApplicationRecord {
   applicationId: string; // doc ID, auto
   referredBy: string; // real staffId, or "unassigned"
+  referralToken?: string; // the raw /apply/[token] segment (or gt_ref_token cookie) used at submission time,
+                           // kept even when it fails to resolve — lets an admin re-run resolution later (see
+                           // referralResolutionFailed) instead of the true referrer being unrecoverable
+  referralResolutionFailed?: boolean; // true if referredBy is "unassigned" because the token→staffId lookup
+                                       // errored (e.g. a Firestore outage), NOT because the token genuinely
+                                       // had no referrer — flags the record as needing manual/backfill review
 
   grantCategory: GrantCategoryId;
   grantAmount: number; // fixed per category — see src/lib/grantCategories.ts

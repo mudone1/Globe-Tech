@@ -8,22 +8,35 @@ const tokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
 export const generateToken = customAlphabet(tokenAlphabet, 8);
 
 /**
+ * Resolves a token to a staffId, or throws if the Firestore lookup itself
+ * fails (as opposed to the token simply not resolving to anyone). Callers
+ * that need to tell "no referrer" apart from "couldn't check right now" —
+ * e.g. to avoid silently mislabeling an application "unassigned" when the
+ * real cause is a database outage — should use this instead of
+ * resolveStaffIdFromToken below.
+ */
+export async function resolveStaffIdFromTokenStrict(token: string | undefined | null): Promise<string | null> {
+  if (!token) return null;
+  const snap = await getAdminDb().collection("linkTokens").doc(token).get();
+  if (!snap.exists) return null;
+  const data = snap.data() as LinkTokenRecord;
+  return data.staffId ?? null;
+}
+
+/**
  * Resolves a public /apply/[token] URL segment to the real staffId, entirely
  * server-side. The browser and URL never see the staffId itself.
  *
  * Returns null (never throws) if the token is missing, malformed, or doesn't
  * resolve — callers should fall back to "unassigned" rather than blocking
- * the applicant, per the build plan's graceful-fallback requirement.
+ * the applicant, per the build plan's graceful-fallback requirement. Use
+ * resolveStaffIdFromTokenStrict instead if the caller needs to distinguish
+ * a genuine non-match from a failed lookup (e.g. to avoid mislabeling
+ * applications "unassigned" during a database outage).
  */
 export async function resolveStaffIdFromToken(token: string | undefined | null): Promise<string | null> {
-  if (!token) return null;
-
   try {
-    const snap = await getAdminDb().collection("linkTokens").doc(token).get();
-    if (!snap.exists) return null;
-
-    const data = snap.data() as LinkTokenRecord;
-    return data.staffId ?? null;
+    return await resolveStaffIdFromTokenStrict(token);
   } catch (err) {
     console.error("resolveStaffIdFromToken failed:", err);
     return null;

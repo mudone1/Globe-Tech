@@ -2,7 +2,7 @@
 
 import { cookies } from "next/headers";
 import { getAdminDb } from "@/lib/firebase-admin";
-import { resolveStaffIdFromToken, isTokenFlaggedTest } from "@/lib/referral";
+import { resolveStaffIdFromToken, resolveStaffIdFromTokenStrict, isTokenFlaggedTest } from "@/lib/referral";
 import { sendGrantCodeEmail } from "@/lib/email";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
 import { normalizeNigerianPhone } from "@/lib/phone";
@@ -235,15 +235,34 @@ export async function submitApplication(
   // Resolve fresh from the token — don't trust anything the client claims
   // about who referred them. Fall back to the cookie if the token itself
   // is missing (e.g. a future multi-step flow that drops the URL segment).
+  // Uses the strict resolver so a failed lookup (e.g. a Firestore outage)
+  // is distinguishable from a token that genuinely has no referrer — a
+  // failure still resolves to "unassigned" for this submission (an
+  // applicant should never be blocked over this), but gets flagged via
+  // referralResolutionFailed so the true referrer can be recovered later
+  // instead of silently and permanently mislabeled.
   let resolvedToken = input.token;
-  let staffId = await resolveStaffIdFromToken(input.token);
+  let staffId: string | null = null;
+  let resolutionFailed = false;
+  try {
+    staffId = await resolveStaffIdFromTokenStrict(input.token);
+  } catch (err) {
+    console.error("submitApplication: referral resolution failed for URL token:", err);
+    resolutionFailed = true;
+  }
   if (!staffId) {
     const store = await cookies();
     const cookieToken = store.get(REF_COOKIE)?.value;
-    staffId = await resolveStaffIdFromToken(cookieToken);
-    if (staffId && cookieToken) resolvedToken = cookieToken;
+    try {
+      staffId = await resolveStaffIdFromTokenStrict(cookieToken);
+      if (staffId) resolutionFailed = false; // cookie fallback succeeded — no longer a failure overall
+      if (staffId && cookieToken) resolvedToken = cookieToken;
+    } catch (err) {
+      console.error("submitApplication: referral resolution failed for cookie token:", err);
+      resolutionFailed = true;
+    }
   }
-  const isTest = await isTokenFlaggedTest(resolvedToken);
+  const isTest = await isTokenFlaggedTest(resolvedToken).catch(() => false);
 
   const grantCode = staffId ?? "unassigned";
   const now = new Date().toISOString();
@@ -252,6 +271,8 @@ export async function submitApplication(
   const record: ApplicationRecord = {
     applicationId: docRef.id,
     referredBy: staffId ?? "unassigned",
+    ...(resolvedToken ? { referralToken: resolvedToken } : {}),
+    ...(resolutionFailed ? { referralResolutionFailed: true } : {}),
     ...(isTest ? { isTest: true } : {}),
 
     grantCategory: input.grantCategory,

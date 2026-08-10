@@ -10,6 +10,7 @@ import CopyButton from "@/components/CopyButton";
 import { getApplicationFieldGroups, formatFieldValue } from "@/lib/applicationFields";
 import { getGrantCategory } from "@/lib/grantCategories";
 import { isPhase2Unlocked, phase2UnlocksAt, PHASE2_STATUS_INFO } from "@/lib/phase2Status";
+import { setApplicationReferrer } from "./actions";
 import type { ApplicationRecord, StaffRecord, Phase2VerificationStatus } from "@/lib/types";
 
 export default function ApplicationDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -28,6 +29,10 @@ function ApplicationDetail({ id }: { id: string }) {
   const [staff, setStaff] = useState<StaffRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [marking, setMarking] = useState(false);
+  const [editingReferrer, setEditingReferrer] = useState(false);
+  const [referrerInput, setReferrerInput] = useState("");
+  const [referrerSaving, setReferrerSaving] = useState(false);
+  const [referrerError, setReferrerError] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -159,9 +164,71 @@ function ApplicationDetail({ id }: { id: string }) {
             <div className="mt-5 grid grid-cols-2 gap-4 border-t border-line pt-5 text-sm sm:grid-cols-4">
               <div>
                 <p className="text-slate">Referred by</p>
-                <p className="font-medium text-ink">
-                  {record.referredBy === "unassigned" ? "Unassigned" : staff?.fullName ?? record.referredBy}
-                </p>
+                {!editingReferrer ? (
+                  <div>
+                    <p className="font-medium text-ink">
+                      {record.referredBy === "unassigned" ? "Unassigned" : staff?.fullName ?? record.referredBy}
+                    </p>
+                    {record.referralResolutionFailed && (
+                      <p className="mt-0.5 text-xs text-bad">
+                        Marked unassigned due to a lookup failure at submission time — may not be accurate.
+                      </p>
+                    )}
+                    <button
+                      onClick={() => {
+                        setReferrerInput(record.referredBy === "unassigned" ? "" : record.referredBy);
+                        setReferrerError(null);
+                        setEditingReferrer(true);
+                      }}
+                      className="mt-1 text-xs text-brand hover:underline"
+                    >
+                      {record.referredBy === "unassigned" ? "Set referrer" : "Correct referrer"}
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <input
+                      className="input mt-1 w-full text-xs"
+                      placeholder="Staff code, e.g. GBT07R/115545925"
+                      value={referrerInput}
+                      onChange={(e) => setReferrerInput(e.target.value)}
+                    />
+                    <div className="mt-1.5 flex gap-2">
+                      <button
+                        onClick={async () => {
+                          setReferrerSaving(true);
+                          setReferrerError(null);
+                          const res = await setApplicationReferrer(record.applicationId, referrerInput);
+                          setReferrerSaving(false);
+                          if (!res.ok) {
+                            setReferrerError(res.error);
+                            return;
+                          }
+                          setRecord({
+                            ...record,
+                            referredBy: referrerInput.trim(),
+                            grantCode: referrerInput.trim(),
+                            referralResolutionFailed: false,
+                          });
+                          setStaff({ ...(staff ?? ({} as StaffRecord)), fullName: res.staffName } as StaffRecord);
+                          setEditingReferrer(false);
+                        }}
+                        disabled={referrerSaving || !referrerInput.trim()}
+                        className="btn-primary px-2 py-1 text-xs"
+                      >
+                        {referrerSaving ? "Saving…" : "Save"}
+                      </button>
+                      <button
+                        onClick={() => setEditingReferrer(false)}
+                        disabled={referrerSaving}
+                        className="btn-secondary px-2 py-1 text-xs"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    {referrerError && <p className="mt-1 text-xs text-bad">{referrerError}</p>}
+                  </div>
+                )}
               </div>
               <div>
                 <p className="text-slate">Submitted</p>
