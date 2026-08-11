@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { collection, getDocs } from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase-client";
+import { getCollectionCached } from "@/lib/firestoreCache";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import Skeleton from "@/components/Skeleton";
@@ -36,20 +35,14 @@ function ApplicationsBrowser() {
   useEffect(() => {
     async function load() {
       try {
-        const db = getFirebaseDb();
-        const [appsSnap, staffSnap] = await Promise.all([
-          getDocs(collection(db, "applications")),
-          getDocs(collection(db, "staff")),
+        const [appsData, staffData] = await Promise.all([
+          getCollectionCached<ApplicationRecord>("applications"),
+          getCollectionCached<StaffRecord>("staff"),
         ]);
-        const rows = appsSnap.docs
-          .map((d) => d.data() as ApplicationRecord)
-          .sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        const rows = [...appsData].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
         setApps(rows);
         const map = new Map<string, StaffRecord>();
-        staffSnap.forEach((d) => {
-          const s = d.data() as StaffRecord;
-          map.set(s.staffId, s);
-        });
+        for (const s of staffData) map.set(s.staffId, s);
         setStaffById(map);
       } catch (err) {
         const message =

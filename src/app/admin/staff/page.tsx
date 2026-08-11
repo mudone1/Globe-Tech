@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
-import { collection, getDocs } from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase-client";
+import { getCollectionCached, invalidateCollectionCache } from "@/lib/firestoreCache";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
@@ -34,23 +33,18 @@ function StaffTable() {
   const [isReviewing, startReview] = useTransition();
   const [reviewingId, setReviewingId] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force = false) => {
     try {
-      const db = getFirebaseDb();
-      const [staffSnap, tokensSnap] = await Promise.all([
-        getDocs(collection(db, "staff")),
-        getDocs(collection(db, "linkTokens")),
+      const [staffData, tokensData] = await Promise.all([
+        getCollectionCached<StaffRecord>("staff", { force }),
+        getCollectionCached<LinkTokenRecord>("linkTokens", { force }),
       ]);
 
       const tokenByStaffId = new Map<string, string>();
-      tokensSnap.forEach((d) => {
-        const t = d.data() as LinkTokenRecord;
-        tokenByStaffId.set(t.staffId, t.token);
-      });
+      for (const t of tokensData) tokenByStaffId.set(t.staffId, t.token);
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
-      const result: Row[] = staffSnap.docs.map((d) => {
-        const s = d.data() as StaffRecord;
+      const result: Row[] = staffData.map((s) => {
         const token = tokenByStaffId.get(s.staffId);
         return {
           ...s,
@@ -79,7 +73,8 @@ function StaffTable() {
     setReviewingId(staffId);
     startReview(async () => {
       await approvePendingStaff(staffId);
-      await load();
+      invalidateCollectionCache("staff");
+      await load(true);
       setReviewingId(null);
     });
   }
@@ -88,7 +83,8 @@ function StaffTable() {
     setReviewingId(staffId);
     startReview(async () => {
       await rejectPendingStaff(staffId);
-      await load();
+      invalidateCollectionCache("staff");
+      await load(true);
       setReviewingId(null);
     });
   }

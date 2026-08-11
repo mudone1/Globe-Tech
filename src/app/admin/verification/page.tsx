@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { collection, getDocs, doc, updateDoc, query, where } from "firebase/firestore";
 import * as XLSX from "xlsx";
 import { getFirebaseDb } from "@/lib/firebase-client";
+import { getCollectionCached } from "@/lib/firestoreCache";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import { uploadBankValidationFile, listBankValidationBatches, type BankValidationBatchSummary } from "@/app/admin/verification/actions";
@@ -36,16 +37,13 @@ function Verification() {
   async function loadPending() {
     try {
       const db = getFirebaseDb();
-      const [pendingSnap, staffSnap] = await Promise.all([
+      const [pendingSnap, staffData] = await Promise.all([
         getDocs(query(collection(db, "applications"), where("phase2VerificationStatus", "in", PENDING_STATUSES))),
-        getDocs(collection(db, "staff")),
+        getCollectionCached<StaffRecord>("staff"),
       ]);
       setPending(pendingSnap.docs.map((d) => d.data() as ApplicationRecord));
       const map = new Map<string, StaffRecord>();
-      staffSnap.forEach((d) => {
-        const s = d.data() as StaffRecord;
-        map.set(s.staffId, s);
-      });
+      for (const s of staffData) map.set(s.staffId, s);
       setStaffById(map);
     } catch (err) {
       console.error("Failed to load pending verifications:", err);
