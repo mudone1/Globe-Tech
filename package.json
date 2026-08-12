@@ -9,6 +9,7 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.112.3",
     "firebase": "^10.12.2",
     "firebase-admin": "^12.1.1",
     "googleapis": "^140.0.1",
