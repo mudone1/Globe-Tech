@@ -2,8 +2,8 @@
 
 import { useEffect, useState, use as usePromise, type CSSProperties } from "react";
 import Link from "next/link";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
-import { getFirebaseDb } from "@/lib/firebase-client";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { rowToApplicationRecord, rowToStaffRecord } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
@@ -37,29 +37,23 @@ function ApplicationDetail({ id }: { id: string }) {
   useEffect(() => {
     async function load() {
       try {
-        const db = getFirebaseDb();
-        const snap = await getDoc(doc(db, "applications", id));
-        if (!snap.exists()) {
+        const supabase = getSupabaseClient();
+        const { data, error: fetchErr } = await supabase.from("applications").select("*").eq("application_id", id).maybeSingle();
+        if (fetchErr || !data) {
           setError("Application not found.");
           return;
         }
-        const data = snap.data() as ApplicationRecord;
-        setRecord(data);
+        const record = rowToApplicationRecord(data);
+        setRecord(record);
 
-        if (data.referredBy && data.referredBy !== "unassigned") {
-          // referredBy is the real staffId, which may contain a "/" — Firestore doc
-          // IDs can't, so staff docs are keyed by a sanitized ID. Since we don't
-          // know that sanitization here, look the record up by its staffId field
-          // instead of assuming the doc ID matches.
-          const { collection, getDocs, query, where } = await import("firebase/firestore");
-          const staffQuery = query(collection(db, "staff"), where("staffId", "==", data.referredBy));
-          const staffSnap = await getDocs(staffQuery);
-          if (!staffSnap.empty) setStaff(staffSnap.docs[0]!.data() as StaffRecord);
+        if (record.referredBy && record.referredBy !== "unassigned") {
+          const { data: staffRow } = await supabase.from("staff").select("*").eq("staff_id", record.referredBy).maybeSingle();
+          if (staffRow) setStaff(rowToStaffRecord(staffRow));
         }
       } catch (err) {
         const message =
           err instanceof Error && err.message.includes("permission")
-            ? "Access denied. Your account isn't in the admins collection yet, or the Firestore rules haven't been published — see the README."
+            ? "Access denied. Your account isn't in the admins table yet — check your Supabase admins allowlist."
             : "Couldn't load this application. Please try refreshing.";
         setError(message);
         console.error("Failed to load application:", err);
@@ -72,9 +66,10 @@ function ApplicationDetail({ id }: { id: string }) {
     if (!record) return;
     setMarking(true);
     try {
-      await updateDoc(doc(getFirebaseDb(), "applications", record.applicationId), {
-        phase2VerificationStatus: "invalid_account" satisfies Phase2VerificationStatus,
-      });
+      await getSupabaseClient()
+        .from("applications")
+        .update({ phase2_verification_status: "invalid_account" satisfies Phase2VerificationStatus })
+        .eq("application_id", record.applicationId);
       setRecord({ ...record, phase2VerificationStatus: "invalid_account" });
     } finally {
       setMarking(false);
@@ -85,11 +80,14 @@ function ApplicationDetail({ id }: { id: string }) {
     if (!record) return;
     setMarking(true);
     try {
-      await updateDoc(doc(getFirebaseDb(), "applications", record.applicationId), {
-        status: "phase2_marked_complete",
-        phase2VerificationStatus: "completed" satisfies Phase2VerificationStatus,
-        phase2VerifiedAt: new Date().toISOString(),
-      });
+      await getSupabaseClient()
+        .from("applications")
+        .update({
+          status: "phase2_marked_complete",
+          phase2_verification_status: "completed" satisfies Phase2VerificationStatus,
+          phase2_verified_at: new Date().toISOString(),
+        })
+        .eq("application_id", record.applicationId);
       setRecord({ ...record, status: "phase2_marked_complete", phase2VerificationStatus: "completed" });
     } finally {
       setMarking(false);

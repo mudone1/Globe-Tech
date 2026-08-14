@@ -3,9 +3,8 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { signOut } from "firebase/auth";
 import { LayoutDashboard, FileText, Users, Wallet, Settings, ShieldCheck, LogOut } from "lucide-react";
-import { getFirebaseAuth } from "@/lib/firebase-client";
+import { getSupabaseClient } from "@/lib/supabase-client";
 
 const LINKS = [
   { href: "/admin/dashboard", label: "Analytics", icon: LayoutDashboard },
@@ -21,7 +20,7 @@ export default function AdminShell({ children }: { children: React.ReactNode }) 
   const router = useRouter();
 
   async function handleSignOut() {
-    await signOut(getFirebaseAuth());
+    await getSupabaseClient().auth.signOut();
     router.push("/admin/login");
   }
 

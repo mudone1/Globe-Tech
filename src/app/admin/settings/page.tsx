@@ -1,11 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { doc, getDoc, setDoc } from "firebase/firestore";
-import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase-client";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { rowToPayoutSettings, payoutSettingsToRow, rowToReferralLinkSettings, referralLinkSettingsToRow } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
-import type { PayoutSettingsRecord, ReferralLinkSettingsRecord } from "@/lib/types";
 
 export default function SettingsPage() {
   return (
@@ -37,18 +36,18 @@ function PayoutSettings() {
   useEffect(() => {
     async function load() {
       try {
-        const snap = await getDoc(doc(getFirebaseDb(), "payoutSettings", "rate"));
-        if (snap.exists()) {
-          const data = snap.data() as PayoutSettingsRecord;
-          setSavedRate(data.perCompletionAmount);
-          setRate(String(data.perCompletionAmount));
+        const { data } = await getSupabaseClient().from("payout_settings").select("*").eq("id", "rate").maybeSingle();
+        if (data) {
+          const record = rowToPayoutSettings(data);
+          setSavedRate(record.perCompletionAmount);
+          setRate(String(record.perCompletionAmount));
         } else {
           setRate("0");
         }
       } catch (err) {
         const message =
           err instanceof Error && err.message.includes("permission")
-            ? "Access denied. Your account isn't in the admins collection yet, or the Firestore rules haven't been published — see the README."
+            ? "Access denied. Your account isn't in the admins table yet — check your Supabase admins allowlist."
             : "Couldn't load settings. Please try refreshing.";
         setError(message);
         console.error("Failed to load payout settings:", err);
@@ -68,13 +67,17 @@ function PayoutSettings() {
     setSaving(true);
     setError(null);
     try {
-      const uid = getFirebaseAuth().currentUser?.uid;
-      const record: PayoutSettingsRecord = {
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const record = {
         perCompletionAmount: amount,
         updatedAt: new Date().toISOString(),
-        ...(uid ? { updatedBy: uid } : {}),
+        ...(user?.id ? { updatedBy: user.id } : {}),
       };
-      await setDoc(doc(getFirebaseDb(), "payoutSettings", "rate"), record);
+      const { error: upsertErr } = await supabase.from("payout_settings").upsert(payoutSettingsToRow("rate", record));
+      if (upsertErr) throw new Error(upsertErr.message);
       setSavedRate(amount);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -144,14 +147,14 @@ function ReferralLinkVisibility() {
   useEffect(() => {
     async function load() {
       try {
-        const snap = await getDoc(doc(getFirebaseDb(), "appSettings", "referralLinks"));
+        const { data } = await getSupabaseClient().from("app_settings").select("*").eq("id", "referralLinks").maybeSingle();
         // Defaults to hidden when never set — mirrors the server default in
         // areReferralLinksHidden() so this toggle reflects reality on first load.
-        setLinksHidden(snap.exists() ? (snap.data() as ReferralLinkSettingsRecord).linksHidden : true);
+        setLinksHidden(data ? rowToReferralLinkSettings(data).linksHidden : true);
       } catch (err) {
         const message =
           err instanceof Error && err.message.includes("permission")
-            ? "Access denied. Your account isn't in the admins collection yet, or the Firestore rules haven't been published — see the README."
+            ? "Access denied. Your account isn't in the admins table yet — check your Supabase admins allowlist."
             : "Couldn't load settings. Please try refreshing.";
         setError(message);
         console.error("Failed to load referral link settings:", err);
@@ -166,13 +169,17 @@ function ReferralLinkVisibility() {
     setSaving(true);
     setError(null);
     try {
-      const uid = getFirebaseAuth().currentUser?.uid;
-      const record: ReferralLinkSettingsRecord = {
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const record = {
         linksHidden: nextHidden,
         updatedAt: new Date().toISOString(),
-        ...(uid ? { updatedBy: uid } : {}),
+        ...(user?.id ? { updatedBy: user.id } : {}),
       };
-      await setDoc(doc(getFirebaseDb(), "appSettings", "referralLinks"), record);
+      const { error: upsertErr } = await supabase.from("app_settings").upsert(referralLinkSettingsToRow("referralLinks", record));
+      if (upsertErr) throw new Error(upsertErr.message);
       setLinksHidden(nextHidden);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);

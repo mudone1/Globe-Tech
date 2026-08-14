@@ -3,9 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword } from "firebase/auth";
 import { Eye, EyeOff } from "lucide-react";
-import { getFirebaseAuth } from "@/lib/firebase-client";
+import { getSupabaseClient } from "@/lib/supabase-client";
 import AuthLayout from "@/components/AuthLayout";
 import { registerStaff } from "@/app/signup/legacy/actions";
 
@@ -29,7 +28,8 @@ export default function SignupPage() {
         return;
       }
       // Account now exists with this password — sign straight in.
-      await signInWithEmailAndPassword(getFirebaseAuth(), result.email, password);
+      const { error: signInErr } = await getSupabaseClient().auth.signInWithPassword({ email: result.email, password });
+      if (signInErr) throw new Error(signInErr.message);
       router.push("/dashboard");
     } catch {
       setError("Something went wrong creating your account. Please try again.");

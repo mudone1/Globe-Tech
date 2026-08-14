@@ -1,8 +1,9 @@
 "use server";
 
 import * as XLSX from "xlsx";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminSupabase } from "@/lib/supabase-admin";
 import { runVerificationBatch } from "@/lib/phase2Verification";
+import { bankValidationBatchToRow } from "@/lib/supabaseMappers";
 import type { BankValidationRow, BankValidationBatchRecord } from "@/lib/types";
 
 function findColumn(headers: string[], candidates: string[]): number {
@@ -59,12 +60,12 @@ export async function uploadBankValidationFile(formData: FormData, adminUid?: st
       return { ok: false, error: "No valid rows found — check the Account Number and Account Name columns have data." };
     }
 
-    const db = getAdminDb();
-    const batchRef = db.collection("bankValidationBatches").doc();
-    const { matchedCount, partialCount } = await runVerificationBatch(rows, batchRef.id);
+    const db = getAdminSupabase();
+    const batchId = crypto.randomUUID();
+    const { matchedCount, partialCount } = await runVerificationBatch(rows, batchId);
 
     const record: BankValidationBatchRecord = {
-      id: batchRef.id,
+      id: batchId,
       fileName: file.name,
       uploadedAt: new Date().toISOString(),
       ...(adminUid ? { uploadedBy: adminUid } : {}),
@@ -72,9 +73,10 @@ export async function uploadBankValidationFile(formData: FormData, adminUid?: st
       matchedCount,
       partialCount,
     };
-    await batchRef.set(record);
+    const { error: insertErr } = await db.from("bank_validation_batches").insert(bankValidationBatchToRow(record));
+    if (insertErr) throw new Error(insertErr.message);
 
-    return { ok: true, batchId: batchRef.id, rowCount: rows.length, matchedCount, partialCount };
+    return { ok: true, batchId, rowCount: rows.length, matchedCount, partialCount };
   } catch (err) {
     console.error("uploadBankValidationFile failed:", err);
     return { ok: false, error: "Couldn't read that file. Make sure it's a valid CSV or Excel file." };
@@ -91,16 +93,19 @@ export interface BankValidationBatchSummary {
 }
 
 export async function listBankValidationBatches(): Promise<BankValidationBatchSummary[]> {
-  const snap = await getAdminDb().collection("bankValidationBatches").orderBy("uploadedAt", "desc").limit(20).get();
-  return snap.docs.map((d) => {
-    const data = d.data() as BankValidationBatchRecord;
-    return {
-      id: data.id,
-      fileName: data.fileName,
-      uploadedAt: data.uploadedAt,
-      rowCount: data.rows?.length ?? 0,
-      matchedCount: data.matchedCount,
-      partialCount: data.partialCount,
-    };
-  });
+  const { data, error } = await getAdminSupabase()
+    .from("bank_validation_batches")
+    .select("*")
+    .order("uploaded_at", { ascending: false })
+    .limit(20);
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    fileName: row.file_name,
+    uploadedAt: row.uploaded_at,
+    rowCount: row.rows?.length ?? 0,
+    matchedCount: row.matched_count,
+    partialCount: row.partial_count,
+  }));
 }

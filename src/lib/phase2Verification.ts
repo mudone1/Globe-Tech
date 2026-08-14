@@ -1,6 +1,7 @@
 import "server-only";
-import { getAdminDb } from "@/lib/firebase-admin";
-import type { ApplicationRecord, BankValidationRow, Phase2VerificationStatus } from "@/lib/types";
+import { getAdminSupabase } from "@/lib/supabase-admin";
+import { selectAllRows } from "@/lib/supabasePaginate";
+import type { BankValidationRow, Phase2VerificationStatus } from "@/lib/types";
 
 export { PHASE2_UNLOCK_HOURS, phase2UnlocksAt, isPhase2Unlocked, PHASE2_STATUS_INFO } from "@/lib/phase2Status";
 
@@ -19,13 +20,13 @@ function normalizeName(s: string): string {
  * always computed fresh from current data).
  */
 export async function runVerificationBatch(rows: BankValidationRow[], batchId: string): Promise<{ matchedCount: number; partialCount: number }> {
-  const db = getAdminDb();
+  const db = getAdminSupabase();
   const pendingStatuses: Phase2VerificationStatus[] = ["awaiting_verification", "account_type_not_verified", "verification_failed"];
 
-  const snap = await db
-    .collection("applications")
-    .where("phase2VerificationStatus", "in", pendingStatuses)
-    .get();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const data = await selectAllRows<any>((from, to) =>
+    db.from("applications").select("*").in("phase2_verification_status", pendingStatuses).range(from, to)
+  );
 
   const normalizedRows = rows.map((r) => ({
     accountNumber: normalizeAccountNumber(r.accountNumber),
@@ -36,40 +37,46 @@ export async function runVerificationBatch(rows: BankValidationRow[], batchId: s
   let partialCount = 0;
   const now = new Date().toISOString();
 
-  const batch = db.batch();
-  snap.forEach((doc) => {
-    const app = doc.data() as ApplicationRecord;
-    if (!app.bankAccountNumber || !app.bankAccountName) return;
+  for (const app of data) {
+    if (!app.bank_account_number || !app.bank_account_name) continue;
 
-    const appAccountNumber = normalizeAccountNumber(app.bankAccountNumber);
-    const appAccountName = normalizeName(app.bankAccountName);
+    const appAccountNumber = normalizeAccountNumber(app.bank_account_number);
+    const appAccountName = normalizeName(app.bank_account_name);
 
     const fullMatch = normalizedRows.some((r) => r.accountNumber === appAccountNumber && r.accountName === appAccountName);
     if (fullMatch) {
       matchedCount += 1;
-      batch.update(doc.ref, {
-        phase2VerificationStatus: "completed" satisfies Phase2VerificationStatus,
-        phase2VerifiedAt: now,
-        phase2VerifiedBatchId: batchId,
-        status: "phase2_marked_complete",
-      });
-      return;
+      await db
+        .from("applications")
+        .update({
+          phase2_verification_status: "completed" satisfies Phase2VerificationStatus,
+          phase2_verified_at: now,
+          phase2_verified_batch_id: batchId,
+          status: "phase2_marked_complete",
+        })
+        .eq("application_id", app.application_id);
+      continue;
     }
 
     const nameMatch = normalizedRows.some((r) => r.accountName === appAccountName);
     if (nameMatch) {
       partialCount += 1;
-      batch.update(doc.ref, { phase2VerificationStatus: "account_type_not_verified" satisfies Phase2VerificationStatus });
-      return;
+      await db
+        .from("applications")
+        .update({ phase2_verification_status: "account_type_not_verified" satisfies Phase2VerificationStatus })
+        .eq("application_id", app.application_id);
+      continue;
     }
 
     // No match at all in this batch — stays/becomes verification_failed so
     // it's automatically re-checked against the next upload.
-    if (app.phase2VerificationStatus !== "verification_failed") {
-      batch.update(doc.ref, { phase2VerificationStatus: "verification_failed" satisfies Phase2VerificationStatus });
+    if (app.phase2_verification_status !== "verification_failed") {
+      await db
+        .from("applications")
+        .update({ phase2_verification_status: "verification_failed" satisfies Phase2VerificationStatus })
+        .eq("application_id", app.application_id);
     }
-  });
+  }
 
-  await batch.commit();
   return { matchedCount, partialCount };
 }

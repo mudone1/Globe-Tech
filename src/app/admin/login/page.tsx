@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { signInWithEmailAndPassword, sendPasswordResetEmail, signOut } from "firebase/auth";
-import { doc, getDoc } from "firebase/firestore";
+import { signInWithEmailAndPassword as firebaseSignIn } from "firebase/auth";
 import { Eye, EyeOff } from "lucide-react";
-import { getFirebaseAuth, getFirebaseDb } from "@/lib/firebase-client";
+import { getFirebaseAuth } from "@/lib/firebase-client";
+import { getSupabaseClient } from "@/lib/supabase-client";
 import AuthLayout from "@/components/AuthLayout";
-import { resolveLogin, checkStaffActiveAfterLogin } from "@/app/admin/login/actions";
+import { resolveLogin, checkStaffActiveAfterLogin, claimSupabasePassword } from "@/app/admin/login/actions";
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState("");
@@ -31,17 +31,56 @@ export default function LoginPage() {
         return;
       }
 
-      const auth = getFirebaseAuth();
-      const cred = await signInWithEmailAndPassword(auth, resolved.email, password);
+      const supabase = getSupabaseClient();
+      let { data: signInData, error: signInErr } = await supabase.auth.signInWithPassword({
+        email: resolved.email,
+        password,
+      });
+
+      // Shadow-verify cutover path: every staff account already exists in
+      // Supabase (created during the data migration) but with a password
+      // nobody has set yet. A failed Supabase sign-in doesn't necessarily
+      // mean a wrong password — it may just mean this account hasn't been
+      // "claimed" here yet. Re-check the password against the still-live
+      // Firebase Auth project; if THAT succeeds, claim it (sets this same
+      // password on the Supabase account) and retry once.
+      if (signInErr) {
+        try {
+          await firebaseSignIn(getFirebaseAuth(), resolved.email, password);
+          const claimed = await claimSupabasePassword(resolved.email, password);
+          if (claimed.ok) {
+            const retry = await supabase.auth.signInWithPassword({ email: resolved.email, password });
+            signInData = retry.data;
+            signInErr = retry.error;
+          }
+        } catch {
+          // Firebase sign-in also failed — genuinely wrong password, fall
+          // through to the original Supabase error below.
+        }
+      }
+
+      if (signInErr || !signInData?.session) {
+        const message = signInErr?.message?.toLowerCase() ?? "";
+        if (message.includes("invalid login credentials")) {
+          setError("Incorrect password. Try again or use Forgot password.");
+        } else if (message.includes("too many requests")) {
+          setError("Too many attempts. Wait a bit and try again, or reset your password.");
+        } else {
+          setError(signInErr ? `Couldn't sign in: ${signInErr.message}` : "Couldn't sign in. Check your details and try again.");
+        }
+        return;
+      }
+
+      const { user } = signInData.session;
 
       // Admins land on the analytics dashboard; everyone else lands on their
       // personal dashboard. This check is best-effort — if it fails for any
       // reason, the login itself already succeeded, so we still route
       // somewhere reasonable rather than reporting a fake "login failed" for
-      // what's actually a Firestore read problem.
+      // what's actually a database read problem.
       try {
-        const adminDoc = await getDoc(doc(getFirebaseDb(), "admins", cred.user.uid));
-        if (adminDoc.exists()) {
+        const { data: adminRow } = await supabase.from("admins").select("user_id").eq("user_id", user.id).maybeSingle();
+        if (adminRow) {
           router.push("/admin/dashboard");
           return;
         }
@@ -54,33 +93,22 @@ export default function LoginPage() {
       // Not an admin — a self-registered Regional Coordinator's account may
       // still be awaiting approval, so confirm they're actually active
       // before letting them into the dashboard.
-      const idToken = await cred.user.getIdToken();
-      const activeCheck = await checkStaffActiveAfterLogin(idToken);
+      const accessToken = signInData.session.access_token;
+      const activeCheck = await checkStaffActiveAfterLogin(accessToken);
       if (!activeCheck.ok) {
-        await signOut(auth);
+        await supabase.auth.signOut();
         setError(activeCheck.error);
         return;
       }
       if (!activeCheck.active) {
-        await signOut(auth);
+        await supabase.auth.signOut();
         setError(activeCheck.error);
         return;
       }
       router.push("/dashboard");
     } catch (err) {
       console.error("Login failed:", err);
-      const code = (err as { code?: string })?.code;
-      if (code === "auth/wrong-password" || code === "auth/invalid-credential") {
-        setError("Incorrect password. Try again or use Forgot password.");
-      } else if (code === "auth/user-not-found") {
-        setError("No account found for that email/Staff ID.");
-      } else if (code === "auth/too-many-requests") {
-        setError("Too many attempts. Wait a bit and try again, or reset your password.");
-      } else if (code === "auth/invalid-api-key" || code === "auth/api-key-not-valid") {
-        setError("The app isn't configured correctly (invalid Firebase API key). Contact the admin.");
-      } else {
-        setError(`Couldn't sign in (${code ?? "unknown error"}). Check your details and try again.`);
-      }
+      setError("Couldn't sign in (unexpected error). Check your details and try again.");
     } finally {
       setLoading(false);
     }
@@ -94,7 +122,8 @@ export default function LoginPage() {
       return;
     }
     try {
-      await sendPasswordResetEmail(getFirebaseAuth(), identifier.trim());
+      const { error: resetErr } = await getSupabaseClient().auth.resetPasswordForEmail(identifier.trim());
+      if (resetErr) throw new Error(resetErr.message);
       setNotice("Check your email for a link to reset your password.");
     } catch (err) {
       console.error("Password reset failed:", err);
