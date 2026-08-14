@@ -1,5 +1,7 @@
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminSupabase } from "@/lib/supabase-admin";
 import { normalizeNigerianPhone } from "@/lib/phone";
+import { rowToApplicationRecord, applicationRecordToRow } from "@/lib/supabaseMappers";
+import { selectAllRows } from "@/lib/supabasePaginate";
 import type { ApplicationRecord } from "@/lib/types";
 
 export interface DedupGroup {
@@ -58,24 +60,24 @@ export interface DedupExecuteResult {
  * is "unassigned" — staff attribution conflicts are never auto-resolved.
  */
 async function buildDedupGroups(): Promise<{ totalApplications: number; groups: DedupGroup[] }> {
-  const db = getAdminDb();
-  const snap = await db.collection("applications").get();
+  const db = getAdminSupabase();
+  const data = await selectAllRows<Record<string, unknown>>((from, to) => db.from("applications").select("*").range(from, to));
 
   const byPhone = new Map<string, ApplicationRecord[]>();
   let total = 0;
 
-  snap.forEach((doc) => {
-    const app = doc.data() as ApplicationRecord;
-    if (app.isTest) return;
+  for (const row of data) {
+    const app = rowToApplicationRecord(row);
+    if (app.isTest) continue;
     total++;
 
     const normalized = app.phoneNormalized || normalizeNigerianPhone(app.phone || "");
-    if (!normalized) return; // can't group what we can't normalize — left untouched
+    if (!normalized) continue; // can't group what we can't normalize — left untouched
 
     const list = byPhone.get(normalized) ?? [];
     list.push(app);
     byPhone.set(normalized, list);
-  });
+  }
 
   const groups: DedupGroup[] = [];
 
@@ -165,10 +167,8 @@ export async function previewApplicationDedup(): Promise<DedupPreviewResult> {
 }
 
 /**
- * Archives (copies to applicationDuplicatesArchive, then deletes) every
- * non-kept record in every group that doesn't need manual review. Sequential
- * operations — Firestore batches don't allow delete+create in the same
- * request, a lesson already learned the hard way on the staff-code migration.
+ * Archives (copies to application_duplicates_archive, then deletes) every
+ * non-kept record in every group that doesn't need manual review.
  */
 export async function executeApplicationDedup(): Promise<DedupExecuteResult> {
   const result: DedupExecuteResult = {
@@ -180,7 +180,7 @@ export async function executeApplicationDedup(): Promise<DedupExecuteResult> {
   };
 
   try {
-    const db = getAdminDb();
+    const db = getAdminSupabase();
     const { groups } = await buildDedupGroups();
 
     for (const group of groups) {
@@ -192,30 +192,32 @@ export async function executeApplicationDedup(): Promise<DedupExecuteResult> {
       try {
         // Backfill phoneNormalized, and recover attribution onto the kept
         // record if flagged, before archiving anything else in this group.
-        const keptRef = db.collection("applications").doc(group.keptApplicationId);
-        const keptSnap = await keptRef.get();
-        if (keptSnap.exists) {
-          const keptData = keptSnap.data() as ApplicationRecord;
+        const { data: keptData } = await db.from("applications").select("*").eq("application_id", group.keptApplicationId).maybeSingle();
+        if (keptData) {
+          const kept = rowToApplicationRecord(keptData);
           const updates: Partial<ApplicationRecord> = {};
-          if (!keptData.phoneNormalized) updates.phoneNormalized = group.phoneNormalized;
+          if (!kept.phoneNormalized) updates.phoneNormalized = group.phoneNormalized;
           if (group.keptReferredByOverride) {
             updates.referredBy = group.keptReferredByOverride;
             updates.grantCode = group.keptReferredByOverride;
           }
-          if (Object.keys(updates).length > 0) await keptRef.update(updates);
+          if (Object.keys(updates).length > 0) {
+            await db.from("applications").update(applicationRecordToRow(updates)).eq("application_id", group.keptApplicationId);
+          }
         }
 
         for (const dup of group.toArchive) {
-          const dupRef = db.collection("applications").doc(dup.applicationId);
-          const dupSnap = await dupRef.get();
-          if (!dupSnap.exists) continue; // already archived in a previous run
+          const { data: dupData } = await db.from("applications").select("*").eq("application_id", dup.applicationId).maybeSingle();
+          if (!dupData) continue; // already archived in a previous run
 
-          await db.collection("applicationDuplicatesArchive").doc(dup.applicationId).set({
-            ...dupSnap.data(),
-            archivedAt: new Date().toISOString(),
-            archivedReason: `Duplicate of ${group.keptApplicationId} (${group.keptReason})`,
+          const dupRecord = rowToApplicationRecord(dupData);
+          await db.from("application_duplicates_archive").insert({
+            application_id: dup.applicationId,
+            data: dupRecord,
+            archived_at: new Date().toISOString(),
+            archived_reason: `Duplicate of ${group.keptApplicationId} (${group.keptReason})`,
           });
-          await dupRef.delete();
+          await db.from("applications").delete().eq("application_id", dup.applicationId);
           result.applicationsArchived++;
         }
 

@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { getFirebaseAuth } from "@/lib/firebase-client";
-import { signOut } from "firebase/auth";
+import { getSupabaseClient } from "@/lib/supabase-client";
 import { useRouter } from "next/navigation";
 import { FileText, CheckCircle2, TrendingUp } from "lucide-react";
 import StaffGate from "@/components/StaffGate";
@@ -32,12 +31,13 @@ function PersonalDashboard() {
 
   useEffect(() => {
     async function load() {
-      const auth = getFirebaseAuth();
-      const user = auth.currentUser;
-      if (!user) return;
+      const supabase = getSupabaseClient();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
       try {
-        const idToken = await user.getIdToken();
-        const result: DashboardData | DashboardError = await getMyDashboardData(idToken);
+        const result: DashboardData | DashboardError = await getMyDashboardData(session.access_token);
         if (!result.ok) {
           setError(result.error);
           return;
@@ -52,7 +52,7 @@ function PersonalDashboard() {
   }, []);
 
   async function handleSignOut() {
-    await signOut(getFirebaseAuth());
+    await getSupabaseClient().auth.signOut();
     router.push("/admin/login");
   }
 

@@ -1,10 +1,10 @@
 "use server";
 
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminSupabase } from "@/lib/supabase-admin";
 import { isPhase2Unlocked, phase2UnlocksAt, PHASE2_STATUS_INFO } from "@/lib/phase2Verification";
 import { getGrantCategory } from "@/lib/grantCategories";
 import { isLikelyPersonName, ACCOUNT_NAME_ERROR } from "@/lib/validation";
-import type { ApplicationRecord } from "@/lib/types";
+import { rowToApplicationRecord } from "@/lib/supabaseMappers";
 
 export type ContinuationStatus =
   | {
@@ -24,11 +24,11 @@ export type ContinuationStatus =
 
 export async function getContinuationStatus(applicationId: string): Promise<ContinuationStatus> {
   try {
-    const snap = await getAdminDb().collection("applications").doc(applicationId).get();
-    if (!snap.exists) {
+    const { data, error } = await getAdminSupabase().from("applications").select("*").eq("application_id", applicationId).maybeSingle();
+    if (error || !data) {
       return { ok: false, error: "We couldn't find that application. Double-check the link from your email." };
     }
-    const app = snap.data() as ApplicationRecord;
+    const app = rowToApplicationRecord(data);
     const unlocked = isPhase2Unlocked(app.phase1SubmittedAt);
     const info = app.phase2VerificationStatus ? PHASE2_STATUS_INFO[app.phase2VerificationStatus] : undefined;
 
@@ -62,10 +62,10 @@ export async function submitAccountDetails(
   if (!isLikelyPersonName(name)) return { ok: false, error: ACCOUNT_NAME_ERROR };
 
   try {
-    const ref = getAdminDb().collection("applications").doc(applicationId);
-    const snap = await ref.get();
-    if (!snap.exists) return { ok: false, error: "We couldn't find that application." };
-    const app = snap.data() as ApplicationRecord;
+    const db = getAdminSupabase();
+    const { data, error } = await db.from("applications").select("*").eq("application_id", applicationId).maybeSingle();
+    if (error || !data) return { ok: false, error: "We couldn't find that application." };
+    const app = rowToApplicationRecord(data);
 
     if (!isPhase2Unlocked(app.phase1SubmittedAt)) {
       return { ok: false, error: "Phase 2 isn't unlocked yet — check back after the 48-hour window." };
@@ -74,12 +74,17 @@ export async function submitAccountDetails(
       return { ok: false, error: "You've already submitted your account details." };
     }
 
-    await ref.update({
-      bankAccountNumber: num,
-      bankAccountName: name,
-      accountDetailsSubmittedAt: new Date().toISOString(),
-      phase2VerificationStatus: "awaiting_verification",
-    });
+    const { error: updateErr } = await db
+      .from("applications")
+      .update({
+        bank_account_number: num,
+        bank_account_name: name,
+        account_details_submitted_at: new Date().toISOString(),
+        phase2_verification_status: "awaiting_verification",
+      })
+      .eq("application_id", applicationId);
+    if (updateErr) throw new Error(updateErr.message);
+
     return { ok: true };
   } catch (err) {
     console.error("submitAccountDetails failed:", err);

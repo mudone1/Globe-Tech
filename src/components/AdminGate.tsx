@@ -1,34 +1,41 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onAuthStateChanged, type User } from "firebase/auth";
 import { useRouter } from "next/navigation";
-import { getFirebaseAuth } from "@/lib/firebase-client";
+import { getSupabaseClient } from "@/lib/supabase-client";
 
 /**
  * Client-side convenience gate: keeps signed-out visitors off the admin
- * pages. This is NOT the real security boundary — Firestore security rules
- * (firestore.rules) are what actually enforce who can read/write which
- * collections. Never rely on this component alone.
+ * pages. This is NOT the real security boundary — Supabase Row Level
+ * Security (supabase/migrations/0001_init_schema.sql) is what actually
+ * enforces who can read/write which tables. Never rely on this component
+ * alone.
  */
 export default function AdminGate({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null | undefined>(undefined);
+  const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
   const router = useRouter();
 
   useEffect(() => {
-    const unsub = onAuthStateChanged(getFirebaseAuth(), (u) => {
-      setUser(u);
-      if (!u) router.replace("/admin/login");
+    const supabase = getSupabaseClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSignedIn(Boolean(session));
+      if (!session) router.replace("/admin/login");
     });
-    return () => unsub();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(Boolean(session));
+      if (!session) router.replace("/admin/login");
+    });
+
+    return () => subscription.unsubscribe();
   }, [router]);
 
-  if (user === undefined) {
-    return (
-      <div className="flex min-h-screen items-center justify-center text-slate">Loading…</div>
-    );
+  if (signedIn === undefined) {
+    return <div className="flex min-h-screen items-center justify-center text-slate">Loading…</div>;
   }
-  if (!user) return null; // redirecting
+  if (!signedIn) return null; // redirecting
 
   return <>{children}</>;
 }

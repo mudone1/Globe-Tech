@@ -1,37 +1,38 @@
 "use server";
 
 import { cookies } from "next/headers";
-import { getAdminDb } from "@/lib/firebase-admin";
+import { getAdminSupabase } from "@/lib/supabase-admin";
 import { resolveStaffIdFromToken, resolveStaffIdFromTokenStrict, isTokenFlaggedTest } from "@/lib/referral";
+import { applicationRecordToRow, rowToApplicationRecord, visitToRow, emailLogToRow } from "@/lib/supabaseMappers";
 import { sendGrantCodeEmail } from "@/lib/email";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
 import { normalizeNigerianPhone } from "@/lib/phone";
-import type { ApplicationRecord, EmailLogRecord, VisitRecord, GrantCategoryId } from "@/lib/types";
+import type { ApplicationRecord, GrantCategoryId } from "@/lib/types";
 
 const REF_COOKIE = "gt_ref_token";
 
 /**
  * Looks up an existing application by phone number (normalized first, then
  * a raw-string fallback for records written before phoneNormalized existed).
- * One retry after a short delay absorbs a transient Firestore blip. Throws
- * if both attempts fail — callers decide how to handle that (see
+ * One retry after a short delay absorbs a transient blip. Throws if both
+ * attempts fail — callers decide how to handle that (see
  * checkExistingApplication below: deliberately fails OPEN, not closed).
  */
 async function findApplicationByPhoneOnce(phone: string): Promise<ApplicationRecord | null> {
-  const db = getAdminDb();
+  const db = getAdminSupabase();
   const normalized = normalizeNigerianPhone(phone);
 
   if (normalized) {
-    const byNormalized = await db.collection("applications").where("phoneNormalized", "==", normalized).limit(1).get();
-    if (!byNormalized.empty) return byNormalized.docs[0]!.data() as ApplicationRecord;
+    const { data, error } = await db.from("applications").select("*").eq("phone_normalized", normalized).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return rowToApplicationRecord(data);
   }
 
-  // Fallback for pre-existing records that don't have phoneNormalized
-  // backfilled yet — matches on whatever raw string the applicant typed.
   const raw = phone.trim();
   if (raw) {
-    const byRaw = await db.collection("applications").where("phone", "==", raw).limit(1).get();
-    if (!byRaw.empty) return byRaw.docs[0]!.data() as ApplicationRecord;
+    const { data, error } = await db.from("applications").select("*").eq("phone", raw).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return rowToApplicationRecord(data);
   }
 
   return null;
@@ -54,15 +55,12 @@ export type CheckExistingApplicationResult = { exists: false } | { exists: true;
  * rest of the form), so a returning applicant gets routed to the FirstBank
  * completion page instead of starting a brand-new application.
  *
- * Fails OPEN by design: if the lookup itself can't complete (e.g. a Firestore
- * outage/quota issue), this reports "not found" rather than blocking the
- * applicant. Blocking every applicant because a duplicate-check read failed
- * is worse than occasionally missing a duplicate — a missed duplicate is
- * fully recoverable later via the /admin/application-dedup cleanup tool,
- * whereas turning away a real applicant during an outage is not recoverable
- * at all. This is a deliberate reversal of an earlier fail-closed version
- * that, in practice, blocked 100% of applicants (new and returning alike)
- * during a Firestore read-quota outage.
+ * Fails OPEN by design: if the lookup itself can't complete (e.g. a database
+ * outage), this reports "not found" rather than blocking the applicant.
+ * Blocking every applicant because a duplicate-check read failed is worse
+ * than occasionally missing a duplicate — a missed duplicate is fully
+ * recoverable later via the /admin/application-dedup cleanup tool, whereas
+ * turning away a real applicant during an outage is not recoverable at all.
  */
 export async function checkExistingApplication(phone: string): Promise<CheckExistingApplicationResult> {
   try {
@@ -79,7 +77,7 @@ export async function checkExistingApplication(phone: string): Promise<CheckExis
  * Preview of the Grant Code shown before final submission, so the applicant
  * can copy/confirm it ahead of time. Uses the exact same resolution logic
  * submitApplication uses for the authoritative write — this is display-only,
- * never trusted as the actual value written to Firestore.
+ * never trusted as the actual value written to the database.
  */
 export async function getGrantCodePreview(token: string): Promise<string> {
   let staffId = await resolveStaffIdFromToken(token);
@@ -93,14 +91,11 @@ export async function getGrantCodePreview(token: string): Promise<string> {
 
 /**
  * Called once on page load (client useEffect) to persist the token in a
- * short-lived cookie. This is the "cookie fallback" from the architecture
- * table — it survives a refresh even if the applicant loses the URL.
- * The cookie stores the opaque token only, never the resolved staffId.
- *
- * Also logs a lightweight visit record so the admin analytics dashboard can
- * show a real "link visited → application submitted" conversion rate, not
- * just submission counts. Best-effort — a failed write here never blocks
- * the applicant from continuing.
+ * short-lived cookie — survives a refresh even if the applicant loses the
+ * URL. Also logs a lightweight visit record so the admin analytics
+ * dashboard can show a real "link visited -> application submitted"
+ * conversion rate. Best-effort — a failed write here never blocks the
+ * applicant from continuing.
  */
 export async function recordVisit(token: string) {
   const store = await cookies();
@@ -108,7 +103,7 @@ export async function recordVisit(token: string) {
     httpOnly: true,
     secure: true,
     sameSite: "lax",
-    maxAge: 60 * 60 * 24 * 7, // 7 days — long enough to cover a slow applicant, short enough to stay "short-lived"
+    maxAge: 60 * 60 * 24 * 7,
     path: "/",
   });
 
@@ -117,8 +112,9 @@ export async function recordVisit(token: string) {
       resolveStaffIdFromToken(token).then((id) => id ?? "unassigned"),
       isTokenFlaggedTest(token),
     ]);
-    const record: VisitRecord = { token, staffId, visitedAt: new Date().toISOString(), ...(isTest ? { isTest: true } : {}) };
-    await getAdminDb().collection("visits").add(record);
+    await getAdminSupabase()
+      .from("visits")
+      .insert(visitToRow({ token, staffId, visitedAt: new Date().toISOString(), ...(isTest ? { isTest: true } : {}) }));
   } catch (err) {
     console.error("recordVisit: failed to log visit (non-fatal):", err);
   }
@@ -130,7 +126,6 @@ export interface SubmitApplicationInput {
   grantCategory: GrantCategoryId;
   grantAmount: number;
 
-  // Universal
   applicantName: string;
   phone: string;
   email: string;
@@ -138,18 +133,16 @@ export interface SubmitApplicationInput {
   businessName: string;
   grantNeedExplanation: string;
 
-  // Trader categories (1–3) only
   businessType?: string;
   businessLocation?: string;
   monthlyProductCost?: number;
 
-  // Enterprise/LLC categories (4–6) only
   cacNumber?: string;
   businessDescription?: string;
 
   declarationAgreed: boolean;
 
-  honeypot: string; // must arrive empty — bots fill every field
+  honeypot: string;
 }
 
 export interface SubmitApplicationResult {
@@ -158,12 +151,8 @@ export interface SubmitApplicationResult {
   grantCode?: string;
 }
 
-export async function submitApplication(
-  input: SubmitApplicationInput
-): Promise<SubmitApplicationResult> {
-  // Spam guard: a real applicant never sees or fills this field.
+export async function submitApplication(input: SubmitApplicationInput): Promise<SubmitApplicationResult> {
   if (input.honeypot) {
-    // Pretend success so bots don't learn the honeypot worked.
     return { ok: true, grantCode: "GT-DEMO" };
   }
 
@@ -234,13 +223,11 @@ export async function submitApplication(
 
   // Resolve fresh from the token — don't trust anything the client claims
   // about who referred them. Fall back to the cookie if the token itself
-  // is missing (e.g. a future multi-step flow that drops the URL segment).
-  // Uses the strict resolver so a failed lookup (e.g. a Firestore outage)
-  // is distinguishable from a token that genuinely has no referrer — a
-  // failure still resolves to "unassigned" for this submission (an
-  // applicant should never be blocked over this), but gets flagged via
-  // referralResolutionFailed so the true referrer can be recovered later
-  // instead of silently and permanently mislabeled.
+  // is missing. Uses the strict resolver so a failed lookup is
+  // distinguishable from a token that genuinely has no referrer — a failure
+  // still resolves to "unassigned" for this submission (an applicant should
+  // never be blocked over this), but gets flagged via
+  // referralResolutionFailed so the true referrer can be recovered later.
   let resolvedToken = input.token;
   let staffId: string | null = null;
   let resolutionFailed = false;
@@ -255,7 +242,7 @@ export async function submitApplication(
     const cookieToken = store.get(REF_COOKIE)?.value;
     try {
       staffId = await resolveStaffIdFromTokenStrict(cookieToken);
-      if (staffId) resolutionFailed = false; // cookie fallback succeeded — no longer a failure overall
+      if (staffId) resolutionFailed = false;
       if (staffId && cookieToken) resolvedToken = cookieToken;
     } catch (err) {
       console.error("submitApplication: referral resolution failed for cookie token:", err);
@@ -266,10 +253,11 @@ export async function submitApplication(
 
   const grantCode = staffId ?? "unassigned";
   const now = new Date().toISOString();
+  const db = getAdminSupabase();
+  const applicationId = crypto.randomUUID();
 
-  const docRef = getAdminDb().collection("applications").doc();
   const record: ApplicationRecord = {
-    applicationId: docRef.id,
+    applicationId,
     referredBy: staffId ?? "unassigned",
     ...(resolvedToken ? { referralToken: resolvedToken } : {}),
     ...(resolutionFailed ? { referralResolutionFailed: true } : {}),
@@ -305,12 +293,16 @@ export async function submitApplication(
     grantCode,
   };
 
-  await docRef.set(record);
+  const { error: insertErr } = await db.from("applications").insert(applicationRecordToRow(record));
+  if (insertErr) {
+    console.error("submitApplication: insert failed:", insertErr);
+    return { ok: false, error: "Something went wrong submitting your application. Please try again." };
+  }
 
   // Send the Grant Code + FirstBank account-opening guide immediately.
   // A failed send never fails the submission itself — the application is
-  // already saved — it's just logged to emailLogs so it's visible to admins
-  // rather than silently disappearing.
+  // already saved — it's just logged to email_logs so it's visible to
+  // admins rather than silently disappearing.
   try {
     await sendGrantCodeEmail({
       to: record.email,
@@ -318,28 +310,30 @@ export async function submitApplication(
       grantCode,
       grantCategoryName: category.name,
       grantAmount: category.amount,
-      applicationId: docRef.id,
+      applicationId,
     });
-    await docRef.update({ status: "phase2_email_sent" });
-    await getAdminDb().collection("emailLogs").add({
-      applicationId: docRef.id,
-      type: "phase2_instructions",
-      sentAt: new Date().toISOString(),
-      opened: false,
-      clicked: false,
-    } satisfies EmailLogRecord);
+    await db.from("applications").update({ status: "phase2_email_sent" }).eq("application_id", applicationId);
+    await db.from("email_logs").insert(
+      emailLogToRow({
+        applicationId,
+        type: "phase2_instructions",
+        sentAt: new Date().toISOString(),
+        opened: false,
+        clicked: false,
+      })
+    );
   } catch (err) {
-    console.error(`Grant Code email failed for application ${docRef.id}:`, err);
-    await getAdminDb()
-      .collection("emailLogs")
-      .add({
-        applicationId: docRef.id,
+    console.error(`Grant Code email failed for application ${applicationId}:`, err);
+    await db.from("email_logs").insert(
+      emailLogToRow({
+        applicationId,
         type: "phase2_instructions",
         sentAt: new Date().toISOString(),
         opened: false,
         clicked: false,
         error: err instanceof Error ? err.message : String(err),
-      } satisfies EmailLogRecord);
+      })
+    );
   }
 
   return { ok: true, grantCode };

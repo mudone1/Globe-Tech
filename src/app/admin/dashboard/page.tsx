@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import { doc, getDoc } from "firebase/firestore";
 import { FileText, Wallet, CheckCircle2, TrendingUp, Download } from "lucide-react";
-import { getFirebaseDb } from "@/lib/firebase-client";
-import { getCollectionCached } from "@/lib/firestoreCache";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { getTableCached } from "@/lib/supabaseCache";
+import { rowToApplicationRecord, rowToStaffRecord, rowToVisit, rowToPayoutSettings } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import Skeleton from "@/components/Skeleton";
@@ -15,7 +15,7 @@ import { TimeSeriesAreaCard } from "@/components/dashboard/TimeSeriesAreaCard";
 import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
 import { getGrantCategory } from "@/lib/grantCategories";
 import { initials } from "@/lib/initials";
-import type { ApplicationRecord, StaffRecord, VisitRecord, PayoutSettingsRecord } from "@/lib/types";
+import type { ApplicationRecord, StaffRecord, VisitRecord } from "@/lib/types";
 
 const CANONICAL_TIERS = ROLE_ORDER.map((r) => ROLE_CONFIGS[r].tier);
 
@@ -51,20 +51,19 @@ function Dashboard() {
   useEffect(() => {
     async function load() {
       try {
-        const db = getFirebaseDb();
-        const [appsData, staffData, visitsData, settingsSnap] = await Promise.all([
-          getCollectionCached<ApplicationRecord>("applications"),
-          getCollectionCached<StaffRecord>("staff"),
-          getCollectionCached<VisitRecord>("visits"),
-          getDoc(doc(db, "payoutSettings", "rate")),
+        const [appsData, staffData, visitsData, settingsResult] = await Promise.all([
+          getTableCached("applications", rowToApplicationRecord),
+          getTableCached("staff", rowToStaffRecord),
+          getTableCached("visits", rowToVisit),
+          getSupabaseClient().from("payout_settings").select("*").eq("id", "rate").maybeSingle(),
         ]);
         setApps(appsData.filter((a) => !a.isTest));
         const map = new Map<string, StaffRecord>();
         for (const s of staffData) map.set(s.staffId, s);
         setStaffById(map);
         setVisits(visitsData.filter((v) => !v.isTest));
-        if (settingsSnap.exists()) {
-          setPayoutRate((settingsSnap.data() as PayoutSettingsRecord).perCompletionAmount);
+        if (settingsResult.data) {
+          setPayoutRate(rowToPayoutSettings(settingsResult.data).perCompletionAmount);
         }
       } catch (err) {
         const message =

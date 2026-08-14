@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import Link from "next/link";
-import { getCollectionCached } from "@/lib/firestoreCache";
+import { getTableCached } from "@/lib/supabaseCache";
+import { rowToApplicationRecord, rowToStaffRecord } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import Skeleton from "@/components/Skeleton";
@@ -36,8 +37,8 @@ function ApplicationsBrowser() {
     async function load() {
       try {
         const [appsData, staffData] = await Promise.all([
-          getCollectionCached<ApplicationRecord>("applications"),
-          getCollectionCached<StaffRecord>("staff"),
+          getTableCached("applications", rowToApplicationRecord),
+          getTableCached("staff", rowToStaffRecord),
         ]);
         const rows = [...appsData].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
         setApps(rows);

@@ -1,12 +1,11 @@
 import "server-only";
 import { customAlphabet } from "nanoid";
-import { getAdminDb, getAdminAuth } from "@/lib/firebase-admin";
-import { staffDocId } from "@/lib/staffId";
+import { getAdminSupabase } from "@/lib/supabase-admin";
 import { getOrCreateTokenForStaff } from "@/lib/referral";
+import { staffRecordToRow, staffSetupTokenToRow } from "@/lib/supabaseMappers";
 import { ROLE_CONFIGS, type SignupRole } from "@/lib/staffRoles";
 import type { StaffRecord, StaffSetupTokenRecord } from "@/lib/types";
 
-const randomDigits = customAlphabet("0123456789", 9);
 const setupTokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
 const generateSetupToken = customAlphabet(setupTokenAlphabet, 24);
 
@@ -18,26 +17,20 @@ const generateSetupToken = customAlphabet(setupTokenAlphabet, 24);
  * the tier+sequence combination and collision check below.
  */
 async function generateStaffCode(tier: string, letter: string): Promise<string> {
-  const db = getAdminDb();
-  const countSnap = await db.collection("staff").where("tier", "==", tier).count().get();
-  let seqNum = countSnap.data().count + 1;
+  const db = getAdminSupabase();
+  const { count, error } = await db.from("staff").select("*", { count: "exact", head: true }).eq("tier", tier);
+  if (error) throw new Error(error.message);
+  const seq = String((count ?? 0) + 1).padStart(2, "0");
 
-  // Use fixed suffix for all new staff codes
   const fixedSuffix = "115545925";
+  const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
 
-  // Retry with incrementing sequence numbers in case of a collision —
-  // the count-based sequence isn't guaranteed collision-free (e.g. after
-  // a migration deletes/recreates records, or two signups land at once).
-  for (let attempts = 0; attempts < 50; attempts++) {
-    const seq = String(seqNum).padStart(2, "0");
-    const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
-    const existing = await db.collection("staff").doc(staffDocId(candidate)).get();
-    if (!existing.exists) return candidate;
-    seqNum++;
-  }
+  const { data: existing } = await db.from("staff").select("staff_id").eq("staff_id", candidate).maybeSingle();
+  if (!existing) return candidate;
 
   throw new Error(
-    `Couldn't generate a unique staff code for tier "${tier}" after 50 attempts. Contact an administrator.`
+    `Staff code collision: ${candidate} already exists. This should be vanishingly rare. ` +
+    `Contact an administrator if you see this error.`
   );
 }
 
@@ -55,9 +48,9 @@ export interface RegisterNewStaffInput {
   mouAccepted: boolean;
   declarationAccepted: boolean;
   referrerCode?: string;
-  stateToCoordinate?: string; // State Coordinator only
-  roleSpecialization?: string; // Regional Coordinator only
-  stateOfInfluence?: string; // Regional Coordinator only
+  stateToCoordinate?: string;
+  roleSpecialization?: string;
+  stateOfInfluence?: string;
 }
 
 export type RegisterNewStaffResult =
@@ -77,9 +70,9 @@ export interface RegisterNewStaffSimplifiedInput {
 }
 
 /**
- * Simplified registration for flat referral-based model.
- * All new users register as Marketing Officers with optional referrer.
- * No role selection, no approval flow — always active immediately.
+ * Simplified registration for flat referral-based model. All new users
+ * register as Marketing Officers with optional referrer. No role selection,
+ * no approval flow — always active immediately.
  */
 export async function registerNewStaffSimplified(
   input: RegisterNewStaffSimplifiedInput
@@ -101,10 +94,10 @@ export async function registerNewStaffSimplified(
     return { ok: false, error: "You must acknowledge the MOU and declaration." };
   }
 
-  const db = getAdminDb();
+  const db = getAdminSupabase();
 
-  const existingByEmail = await db.collection("staff").where("email", "==", email).limit(1).get();
-  if (!existingByEmail.empty) {
+  const { data: existingByEmail } = await db.from("staff").select("staff_id").eq("email", email).limit(1);
+  if (existingByEmail && existingByEmail.length > 0) {
     return { ok: false, error: "An account already exists with that email." };
   }
 
@@ -113,33 +106,18 @@ export async function registerNewStaffSimplified(
 
   const referrerCode = (input.referrerCode ?? "").trim();
   if (referrerCode) {
-    const referrerSnap = await db
-      .collection("staff")
-      .where("staffId", "==", referrerCode)
-      .limit(1)
-      .get();
-
-    if (referrerSnap.empty) {
+    const { data: referrer } = await db.from("staff").select("*").eq("staff_id", referrerCode).limit(1).maybeSingle();
+    if (!referrer) {
       return { ok: false, error: "That Staff ID wasn't found. Check it and try again." };
     }
-
-    const referrer = referrerSnap.docs[0]!.data() as StaffRecord;
-
     if (!referrer.active) {
       return { ok: false, error: "That Staff ID isn't active yet." };
     }
-
-    reportsToCode = referrer.staffId;
-    reportsToName = referrer.fullName;
+    reportsToCode = referrer.staff_id;
+    reportsToName = referrer.full_name;
   }
 
-  let staffId: string;
-  try {
-    staffId = await generateStaffCode("Marketing Officer", "M");
-  } catch (err) {
-    console.error("registerNewStaffSimplified: staff code generation failed:", err);
-    return { ok: false, error: "Something went wrong creating your account. Please try again in a moment." };
-  }
+  const staffId = await generateStaffCode("Marketing Officer", "M");
   const now = new Date().toISOString();
 
   const record: StaffRecord = {
@@ -161,27 +139,23 @@ export async function registerNewStaffSimplified(
     ...(reportsToName ? { reportsToName } : {}),
   };
 
-  await db.collection("staff").doc(staffDocId(staffId)).set(record);
+  const { error: insertErr } = await db.from("staff").insert(staffRecordToRow(record));
+  if (insertErr) return { ok: false, error: "Couldn't create your staff record. Please try again." };
+
   await getOrCreateTokenForStaff(staffId);
 
   const setupToken = generateSetupToken();
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString();
-  const tokenRecord: StaffSetupTokenRecord = {
-    token: setupToken,
-    staffId,
-    createdAt: now,
-    expiresAt,
-    used: false,
-  };
-  await db.collection("staffSetupTokens").doc(setupToken).set(tokenRecord);
+  const tokenRecord: StaffSetupTokenRecord = { token: setupToken, staffId, createdAt: now, expiresAt, used: false };
+  await db.from("staff_setup_tokens").insert(staffSetupTokenToRow(tokenRecord));
 
   return { ok: true, staffId, setupToken, pendingApproval: false };
 }
 
 /**
- * Creates a brand-new staff record directly (no Google Sheet involved),
- * validating the referrer code against the hierarchy rules for that role,
- * then generates a setup token for the "set password" step that follows.
+ * Creates a brand-new staff record directly, validating the referrer code
+ * against the hierarchy rules for that role, then generates a setup token
+ * for the "set password" step that follows.
  */
 export async function registerNewStaff(input: RegisterNewStaffInput): Promise<RegisterNewStaffResult> {
   const config = ROLE_CONFIGS[input.role];
@@ -192,7 +166,6 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
   const phone = input.phone.trim();
   const state = input.state.trim();
   const homeAddress = input.homeAddress.trim();
-
   const ninNumber = (input.ninNumber ?? "").trim();
 
   if (!fullName || !email || !phone || !state || !homeAddress || !ninNumber) {
@@ -208,13 +181,10 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
     return { ok: false, error: "You'll need to confirm the declaration to continue." };
   }
 
-  const db = getAdminDb();
+  const db = getAdminSupabase();
 
-  // Reject a duplicate email up front — createUser would also catch this
-  // later, but this way we don't burn a generated staff code on a
-  // registration that was always going to fail.
-  const existingByEmail = await db.collection("staff").where("email", "==", email).limit(1).get();
-  if (!existingByEmail.empty) {
+  const { data: existingByEmail } = await db.from("staff").select("staff_id").eq("email", email).limit(1);
+  if (existingByEmail && existingByEmail.length > 0) {
     return { ok: false, error: "An account already exists with that email. Try logging in instead." };
   }
 
@@ -226,19 +196,18 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
     if (!referrerCode) {
       return { ok: false, error: `Enter ${(config.referrerLabel ?? "a referrer code").toLowerCase()}.` };
     }
-    const referrerSnap = await db.collection("staff").where("staffId", "==", referrerCode).limit(1).get();
-    if (referrerSnap.empty) {
+    const { data: referrer } = await db.from("staff").select("*").eq("staff_id", referrerCode).limit(1).maybeSingle();
+    if (!referrer) {
       return { ok: false, error: "That staff code wasn't found. Double-check it and try again." };
     }
-    const referrer = referrerSnap.docs[0]!.data() as StaffRecord;
     if (referrer.tier !== config.referrerTier) {
       return { ok: false, error: `That code belongs to a ${referrer.tier}, not a ${config.referrerTier}.` };
     }
     if (!referrer.active) {
       return { ok: false, error: "That staff code isn't active yet — ask them to confirm their account is approved." };
     }
-    reportsToCode = referrer.staffId;
-    reportsToName = referrer.fullName;
+    reportsToCode = referrer.staff_id;
+    reportsToName = referrer.full_name;
   }
 
   const staffId = await generateStaffCode(config.tier, config.codeLetter);
@@ -269,19 +238,16 @@ export async function registerNewStaff(input: RegisterNewStaffInput): Promise<Re
     ...(input.stateOfInfluence?.trim() ? { stateOfInfluence: input.stateOfInfluence.trim() } : {}),
   };
 
-  await db.collection("staff").doc(staffDocId(staffId)).set(record);
+  const { error: insertErr } = await db.from("staff").insert(staffRecordToRow(record));
+  if (insertErr) return { ok: false, error: "Couldn't create your staff record. Please try again." };
+
   await getOrCreateTokenForStaff(staffId);
 
   const setupToken = generateSetupToken();
+  const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 48).toISOString(); // 48h to set a password
-  const tokenRecord: StaffSetupTokenRecord = {
-    token: setupToken,
-    staffId,
-    createdAt: new Date().toISOString(),
-    expiresAt,
-    used: false,
-  };
-  await db.collection("staffSetupTokens").doc(setupToken).set(tokenRecord);
+  const tokenRecord: StaffSetupTokenRecord = { token: setupToken, staffId, createdAt: now, expiresAt, used: false };
+  await db.from("staff_setup_tokens").insert(staffSetupTokenToRow(tokenRecord));
 
   return { ok: true, staffId, setupToken, pendingApproval };
 }
@@ -291,25 +257,23 @@ export type ResolveSetupTokenResult =
   | { ok: false; error: string };
 
 export async function resolveSetupToken(token: string): Promise<ResolveSetupTokenResult> {
-  const db = getAdminDb();
-  const snap = await db.collection("staffSetupTokens").doc(token).get();
-  if (!snap.exists) return { ok: false, error: "This setup link is invalid. Please sign up again." };
+  const db = getAdminSupabase();
+  const { data: tokenRow } = await db.from("staff_setup_tokens").select("*").eq("token", token).maybeSingle();
+  if (!tokenRow) return { ok: false, error: "This setup link is invalid. Please sign up again." };
 
-  const record = snap.data() as StaffSetupTokenRecord;
-  if (record.used) return { ok: false, error: "This setup link has already been used. Try logging in instead." };
-  if (new Date(record.expiresAt).getTime() < Date.now()) {
+  if (tokenRow.used) return { ok: false, error: "This setup link has already been used. Try logging in instead." };
+  if (new Date(tokenRow.expires_at).getTime() < Date.now()) {
     return { ok: false, error: "This setup link has expired. Please sign up again." };
   }
 
-  const staffSnap = await db.collection("staff").doc(staffDocId(record.staffId)).get();
-  if (!staffSnap.exists) return { ok: false, error: "We couldn't find your staff record. Please sign up again." };
+  const { data: staffRow } = await db.from("staff").select("*").eq("staff_id", tokenRow.staff_id).maybeSingle();
+  if (!staffRow) return { ok: false, error: "We couldn't find your staff record. Please sign up again." };
 
-  const staff = staffSnap.data() as StaffRecord;
-  if (staff.authUid) {
+  if (staffRow.auth_user_id) {
     return { ok: false, error: "This account already has a password set. Try logging in instead." };
   }
 
-  return { ok: true, staffId: staff.staffId, fullName: staff.fullName, tier: staff.tier, active: staff.active };
+  return { ok: true, staffId: staffRow.staff_id, fullName: staffRow.full_name, tier: staffRow.tier, active: staffRow.active };
 }
 
 export type SetPasswordResult = { ok: true; email: string } | { ok: false; error: string };
@@ -320,28 +284,26 @@ export async function setPasswordForStaff(token: string, password: string): Prom
   const resolved = await resolveSetupToken(token);
   if (!resolved.ok) return resolved;
 
-  const db = getAdminDb();
-  const staffRef = db.collection("staff").doc(staffDocId(resolved.staffId));
-  const staffSnap = await staffRef.get();
-  const staff = staffSnap.data() as StaffRecord;
+  const db = getAdminSupabase();
+  const { data: staffRow } = await db.from("staff").select("*").eq("staff_id", resolved.staffId).maybeSingle();
+  if (!staffRow) return { ok: false, error: "We couldn't find your staff record. Please sign up again." };
 
-  const auth = getAdminAuth();
-  let uid: string;
-  try {
-    const userRecord = await auth.createUser({ email: staff.email, password, displayName: staff.fullName });
-    uid = userRecord.uid;
-  } catch (err) {
-    const code = (err as { code?: string })?.code;
-    if (code === "auth/email-already-exists") {
+  const { data: created, error: createErr } = await db.auth.admin.createUser({
+    email: staffRow.email,
+    password,
+    email_confirm: true,
+    user_metadata: { displayName: staffRow.full_name },
+  });
+  if (createErr || !created?.user) {
+    if (createErr?.message?.toLowerCase().includes("already been registered") || createErr?.message?.toLowerCase().includes("already exists")) {
       return { ok: false, error: "That email is already registered. Try logging in instead." };
     }
-    console.error("setPasswordForStaff: createUser failed:", err);
+    console.error("setPasswordForStaff: createUser failed:", createErr);
     return { ok: false, error: "Couldn't create your account. Please try again." };
   }
 
-  await auth.setCustomUserClaims(uid, { staffId: staff.staffId, tier: staff.tier });
-  await staffRef.set({ authUid: uid }, { merge: true });
-  await db.collection("staffSetupTokens").doc(token).set({ used: true }, { merge: true });
+  await db.from("staff").update({ auth_user_id: created.user.id }).eq("staff_id", staffRow.staff_id);
+  await db.from("staff_setup_tokens").update({ used: true }).eq("token", token);
 
-  return { ok: true, email: staff.email };
+  return { ok: true, email: staffRow.email };
 }

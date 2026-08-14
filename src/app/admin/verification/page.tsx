@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { collection, getDocs, doc, updateDoc, query, where } from "firebase/firestore";
 import * as XLSX from "xlsx";
-import { getFirebaseDb } from "@/lib/firebase-client";
-import { getCollectionCached } from "@/lib/firestoreCache";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { getTableCached } from "@/lib/supabaseCache";
+import { selectAllRows } from "@/lib/supabasePaginate";
+import { rowToApplicationRecord, rowToStaffRecord } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import { uploadBankValidationFile, listBankValidationBatches, type BankValidationBatchSummary } from "@/app/admin/verification/actions";
@@ -36,12 +37,13 @@ function Verification() {
 
   async function loadPending() {
     try {
-      const db = getFirebaseDb();
-      const [pendingSnap, staffData] = await Promise.all([
-        getDocs(query(collection(db, "applications"), where("phase2VerificationStatus", "in", PENDING_STATUSES))),
-        getCollectionCached<StaffRecord>("staff"),
+      const [pendingRows, staffData] = await Promise.all([
+        selectAllRows<Record<string, unknown>>((from, to) =>
+          getSupabaseClient().from("applications").select("*").in("phase2_verification_status", PENDING_STATUSES).range(from, to)
+        ),
+        getTableCached("staff", rowToStaffRecord),
       ]);
-      setPending(pendingSnap.docs.map((d) => d.data() as ApplicationRecord));
+      setPending(pendingRows.map(rowToApplicationRecord));
       const map = new Map<string, StaffRecord>();
       for (const s of staffData) map.set(s.staffId, s);
       setStaffById(map);
@@ -106,9 +108,10 @@ function Verification() {
   async function markInvalid(applicationId: string) {
     setActingOn(applicationId);
     try {
-      await updateDoc(doc(getFirebaseDb(), "applications", applicationId), {
-        phase2VerificationStatus: "invalid_account" satisfies Phase2VerificationStatus,
-      });
+      await getSupabaseClient()
+        .from("applications")
+        .update({ phase2_verification_status: "invalid_account" satisfies Phase2VerificationStatus })
+        .eq("application_id", applicationId);
       await loadPending();
     } finally {
       setActingOn(null);
@@ -118,11 +121,14 @@ function Verification() {
   async function markCompleteManually(applicationId: string) {
     setActingOn(applicationId);
     try {
-      await updateDoc(doc(getFirebaseDb(), "applications", applicationId), {
-        phase2VerificationStatus: "completed" satisfies Phase2VerificationStatus,
-        phase2VerifiedAt: new Date().toISOString(),
-        status: "phase2_marked_complete",
-      });
+      await getSupabaseClient()
+        .from("applications")
+        .update({
+          phase2_verification_status: "completed" satisfies Phase2VerificationStatus,
+          phase2_verified_at: new Date().toISOString(),
+          status: "phase2_marked_complete",
+        })
+        .eq("application_id", applicationId);
       await loadPending();
     } finally {
       setActingOn(null);

@@ -1,14 +1,15 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useState } from "react";
-import { collection, doc, getDoc, getDocs, addDoc } from "firebase/firestore";
-import { getFirebaseDb, getFirebaseAuth } from "@/lib/firebase-client";
-import { getCollectionCached } from "@/lib/firestoreCache";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { getTableCached } from "@/lib/supabaseCache";
+import { selectAllRows } from "@/lib/supabasePaginate";
+import { rowToApplicationRecord, rowToStaffRecord, rowToPayoutRecord, rowToPayoutSettings, payoutRecordToRow } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import Skeleton from "@/components/Skeleton";
 import CountUp from "@/components/CountUp";
-import type { ApplicationRecord, StaffRecord, PayoutSettingsRecord, PayoutRecord } from "@/lib/types";
+import type { ApplicationRecord, StaffRecord, PayoutRecord } from "@/lib/types";
 
 export default function PayoutsPage() {
   return (
@@ -50,20 +51,19 @@ function Payouts() {
 
   async function loadAll() {
     try {
-      const db = getFirebaseDb();
-      const [appsData, staffData, payoutSnap, settingsSnap] = await Promise.all([
-        getCollectionCached<ApplicationRecord>("applications"),
-        getCollectionCached<StaffRecord>("staff"),
-        getDocs(collection(db, "payoutRecords")),
-        getDoc(doc(db, "payoutSettings", "rate")),
+      const [appsData, staffData, payoutRows, settingsResult] = await Promise.all([
+        getTableCached("applications", rowToApplicationRecord),
+        getTableCached("staff", rowToStaffRecord),
+        selectAllRows<Record<string, unknown>>((from, to) => getSupabaseClient().from("payout_records").select("*").range(from, to)),
+        getSupabaseClient().from("payout_settings").select("*").eq("id", "rate").maybeSingle(),
       ]);
       setApps(appsData.filter((a) => !a.isTest));
       const map = new Map<string, StaffRecord>();
       for (const s of staffData) map.set(s.staffId, s);
       setStaffById(map);
-      setPayoutRecords(payoutSnap.docs.map((d) => ({ ...(d.data() as PayoutRecord), docId: d.id })));
-      if (settingsSnap.exists()) {
-        setRate((settingsSnap.data() as PayoutSettingsRecord).perCompletionAmount);
+      setPayoutRecords(payoutRows.map((row) => ({ ...rowToPayoutRecord(row), docId: row.id as string })));
+      if (settingsResult.data) {
+        setRate(rowToPayoutSettings(settingsResult.data).perCompletionAmount);
       }
     } catch (err) {
       const message =
@@ -133,15 +133,20 @@ function Payouts() {
     setSaving(true);
     setError(null);
     try {
-      const uid = getFirebaseAuth().currentUser?.uid;
-      const record: Omit<PayoutRecord, "id"> = {
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const record: PayoutRecord = {
+        id: crypto.randomUUID(),
         staffId,
         amount: amt,
         paidAt: new Date().toISOString(),
         ...(note.trim() ? { note: note.trim() } : {}),
-        ...(uid ? { recordedBy: uid } : {}),
+        ...(user?.id ? { recordedBy: user.id } : {}),
       };
-      await addDoc(collection(getFirebaseDb(), "payoutRecords"), record);
+      const { error: insertErr } = await supabase.from("payout_records").insert(payoutRecordToRow(record));
+      if (insertErr) throw new Error(insertErr.message);
       setRecordingFor(null);
       setAmount("");
       setNote("");

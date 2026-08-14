@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
-import { getCollectionCached, invalidateCollectionCache } from "@/lib/firestoreCache";
+import { getTableCached, invalidateTableCache } from "@/lib/supabaseCache";
+import { rowToStaffRecord, rowToLinkToken } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import CopyButton from "@/components/CopyButton";
@@ -9,7 +10,7 @@ import Skeleton from "@/components/Skeleton";
 import HierarchyTree from "@/components/HierarchyTree";
 import { buildHierarchyForest, countDescendants, type HierarchyNode } from "@/lib/staffHierarchy";
 import { approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
-import type { StaffRecord, LinkTokenRecord } from "@/lib/types";
+import type { StaffRecord } from "@/lib/types";
 
 interface Row extends StaffRecord {
   link: string;
@@ -36,8 +37,8 @@ function StaffTable() {
   const load = useCallback(async (force = false) => {
     try {
       const [staffData, tokensData] = await Promise.all([
-        getCollectionCached<StaffRecord>("staff", { force }),
-        getCollectionCached<LinkTokenRecord>("linkTokens", { force }),
+        getTableCached("staff", rowToStaffRecord, { force }),
+        getTableCached("link_tokens", rowToLinkToken, { force }),
       ]);
 
       const tokenByStaffId = new Map<string, string>();
@@ -73,7 +74,7 @@ function StaffTable() {
     setReviewingId(staffId);
     startReview(async () => {
       await approvePendingStaff(staffId);
-      invalidateCollectionCache("staff");
+      invalidateTableCache("staff");
       await load(true);
       setReviewingId(null);
     });
@@ -83,7 +84,7 @@ function StaffTable() {
     setReviewingId(staffId);
     startReview(async () => {
       await rejectPendingStaff(staffId);
-      invalidateCollectionCache("staff");
+      invalidateTableCache("staff");
       await load(true);
       setReviewingId(null);
     });
