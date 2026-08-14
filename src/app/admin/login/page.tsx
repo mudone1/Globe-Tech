@@ -122,7 +122,9 @@ export default function LoginPage() {
       return;
     }
     try {
-      const { error: resetErr } = await getSupabaseClient().auth.resetPasswordForEmail(identifier.trim());
+      const { error: resetErr } = await getSupabaseClient().auth.resetPasswordForEmail(identifier.trim(), {
+        redirectTo: `${window.location.origin}/admin/reset-password`,
+      });
       if (resetErr) throw new Error(resetErr.message);
       setNotice("Check your email for a link to reset your password.");
     } catch (err) {
