@@ -52,24 +52,47 @@ export type ClaimPasswordResult = { ok: true } | { ok: false; error: string };
  * member has logged in at least once post-cutover, this path stops being
  * exercised and can eventually be removed along with the Firebase fallback.
  */
+/**
+ * Finds a Supabase Auth user's id by email, fully paginated — the admin
+ * listUsers() API defaults to 50 users per page, and this project has 140+
+ * accounts, so a single unpaginated call can silently miss real accounts.
+ * Used only as a fallback (see claimSupabasePassword) for accounts with no
+ * matching staff row — i.e. admin-only accounts never linked to a staff
+ * record — so the extra scan cost is rare, not the common path.
+ */
+async function findAuthUserIdByEmailPaginated(email: string): Promise<string | null> {
+  const db = getAdminSupabase();
+  const target = email.toLowerCase();
+  let page = 1;
+  const perPage = 200;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data, error } = await db.auth.admin.listUsers({ page, perPage });
+    if (error) throw new Error(error.message);
+    const found = data.users.find((u) => u.email?.toLowerCase() === target);
+    if (found) return found.id;
+    if (data.users.length < perPage) return null; // last page, not found
+    page++;
+  }
+}
+
 export async function claimSupabasePassword(email: string, password: string): Promise<ClaimPasswordResult> {
   if (password.length < 6) return { ok: false, error: "Password must be at least 6 characters." };
 
   try {
     const db = getAdminSupabase();
 
-    // Look up the target user via staff.auth_user_id rather than
-    // auth.admin.listUsers() — that call paginates at 50 users per page by
-    // default, and this project has 140+ accounts, so a client-side
-    // Array.find() over just the first page would silently miss any real
-    // account past #50. Every staff member's Supabase auth user was already
-    // linked during the migration import, so this is both correct and a
-    // single indexed lookup instead of a full user-list scan.
+    // Fast path: look up via staff.auth_user_id (a single indexed lookup) —
+    // covers every migrated staff member. Falls back to a paginated
+    // auth-user scan by email for admin-only accounts that were never
+    // linked to a staff row (e.g. a super-admin with no staff record).
     const { data: staffRow, error: staffErr } = await db.from("staff").select("auth_user_id").eq("email", email.toLowerCase()).maybeSingle();
     if (staffErr) throw new Error(staffErr.message);
-    if (!staffRow?.auth_user_id) return { ok: false, error: "No account found for that email." };
 
-    const { error: updateErr } = await db.auth.admin.updateUserById(staffRow.auth_user_id, { password });
+    const targetUserId = staffRow?.auth_user_id ?? (await findAuthUserIdByEmailPaginated(email));
+    if (!targetUserId) return { ok: false, error: "No account found for that email." };
+
+    const { error: updateErr } = await db.auth.admin.updateUserById(targetUserId, { password });
     if (updateErr) throw new Error(updateErr.message);
 
     return { ok: true };
