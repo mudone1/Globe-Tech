@@ -11,26 +11,37 @@ const generateSetupToken = customAlphabet(setupTokenAlphabet, 24);
 
 /**
  * Generates staff codes using the fixed suffix format (e.g. "GBT07R/115545925"):
- * GBT + 2-digit sequence (how many staff of this tier exist already) +
- * tier letter + "/" + fixed 9-digit suffix (115545925). The sequence number
- * is cosmetic (mirrors the historical format) — uniqueness is guaranteed by
- * the tier+sequence combination and collision check below.
+ * GBT + sequence + tier letter + "/" + fixed 9-digit suffix (115545925). The
+ * sequence number is cosmetic (mirrors the historical format) — uniqueness is
+ * guaranteed by the tier+sequence combination and the collision retry below.
+ *
+ * The count of existing rows in this tier is only a *starting point* for the
+ * sequence, not a guarantee — the Firestore->Postgres migration left gaps in
+ * some tiers (codes corrected/renumbered during import), so count+1 can land
+ * on a sequence number that's already taken by an earlier registration. When
+ * that happens we used to throw immediately, which broke every subsequent
+ * signup in that tier (the count never changes on a failed attempt, so it
+ * would collide on the exact same candidate forever). Instead, walk forward
+ * until we find a free sequence number.
  */
 async function generateStaffCode(tier: string, letter: string): Promise<string> {
   const db = getAdminSupabase();
   const { count, error } = await db.from("staff").select("*", { count: "exact", head: true }).eq("tier", tier);
   if (error) throw new Error(error.message);
-  const seq = String((count ?? 0) + 1).padStart(2, "0");
 
   const fixedSuffix = "115545925";
-  const candidate = `GBT${seq}${letter}/${fixedSuffix}`;
+  let seqNum = (count ?? 0) + 1;
+  const maxAttempts = 500;
 
-  const { data: existing } = await db.from("staff").select("staff_id").eq("staff_id", candidate).maybeSingle();
-  if (!existing) return candidate;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = `GBT${String(seqNum).padStart(2, "0")}${letter}/${fixedSuffix}`;
+    const { data: existing } = await db.from("staff").select("staff_id").eq("staff_id", candidate).maybeSingle();
+    if (!existing) return candidate;
+    seqNum++;
+  }
 
   throw new Error(
-    `Staff code collision: ${candidate} already exists. This should be vanishingly rare. ` +
-    `Contact an administrator if you see this error.`
+    `Couldn't find a free staff code after ${maxAttempts} attempts. Contact an administrator.`
   );
 }
 

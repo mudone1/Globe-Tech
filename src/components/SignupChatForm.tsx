@@ -165,48 +165,57 @@ export default function SignupChatForm({ role, simplified }: { role: SignupRole;
     setStage("submitting");
     setSubmitError(null);
 
-    const res = simplified
-      ? await submitStaffRegistrationSimplified({
-          fullName: [answers.firstName, answers.lastName]
-            .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-            .join(" "),
-          email: typeof answers.email === "string" ? answers.email : "",
-          phone: typeof answers.phone === "string" ? answers.phone : "",
-          state: typeof answers.state === "string" ? answers.state : "",
-          homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
-          ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : "",
-          mouAccepted: mouChecked.every(Boolean),
-          declarationAccepted: answers.declarationAccepted === "accepted",
-          referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
-        })
-      : await submitStaffRegistration({
-          role,
-          fullName: [answers.firstName, answers.middleName, answers.lastName]
-            .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
-            .join(" "),
-          middleName: typeof answers.middleName === "string" ? answers.middleName : undefined,
-          email: typeof answers.email === "string" ? answers.email : "",
-          phone: typeof answers.phone === "string" ? answers.phone : "",
-          state: typeof answers.state === "string" ? answers.state : "",
-          homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
-          socialMediaPlatform: typeof answers.socialMediaPlatform === "string" ? answers.socialMediaPlatform : undefined,
-          socialMediaUsername: typeof answers.socialMediaUsername === "string" ? answers.socialMediaUsername : undefined,
-          ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : undefined,
-          mouAccepted: mouChecked.every(Boolean),
-          declarationAccepted: answers.declarationAccepted === "accepted",
-          referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
-          stateToCoordinate: typeof answers.stateToCoordinate === "string" ? answers.stateToCoordinate : undefined,
-          roleSpecialization: typeof answers.roleSpecialization === "string" ? answers.roleSpecialization : undefined,
-          stateOfInfluence: typeof answers.stateOfInfluence === "string" ? answers.stateOfInfluence : undefined,
-        });
+    try {
+      const res = simplified
+        ? await submitStaffRegistrationSimplified({
+            fullName: [answers.firstName, answers.lastName]
+              .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              .join(" "),
+            email: typeof answers.email === "string" ? answers.email : "",
+            phone: typeof answers.phone === "string" ? answers.phone : "",
+            state: typeof answers.state === "string" ? answers.state : "",
+            homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
+            ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : "",
+            mouAccepted: mouChecked.every(Boolean),
+            declarationAccepted: answers.declarationAccepted === "accepted",
+            referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
+          })
+        : await submitStaffRegistration({
+            role,
+            fullName: [answers.firstName, answers.middleName, answers.lastName]
+              .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+              .join(" "),
+            middleName: typeof answers.middleName === "string" ? answers.middleName : undefined,
+            email: typeof answers.email === "string" ? answers.email : "",
+            phone: typeof answers.phone === "string" ? answers.phone : "",
+            state: typeof answers.state === "string" ? answers.state : "",
+            homeAddress: typeof answers.homeAddress === "string" ? answers.homeAddress : "",
+            socialMediaPlatform: typeof answers.socialMediaPlatform === "string" ? answers.socialMediaPlatform : undefined,
+            socialMediaUsername: typeof answers.socialMediaUsername === "string" ? answers.socialMediaUsername : undefined,
+            ninNumber: typeof answers.ninNumber === "string" ? answers.ninNumber : undefined,
+            mouAccepted: mouChecked.every(Boolean),
+            declarationAccepted: answers.declarationAccepted === "accepted",
+            referrerCode: typeof answers.referrerCode === "string" ? answers.referrerCode : undefined,
+            stateToCoordinate: typeof answers.stateToCoordinate === "string" ? answers.stateToCoordinate : undefined,
+            roleSpecialization: typeof answers.roleSpecialization === "string" ? answers.roleSpecialization : undefined,
+            stateOfInfluence: typeof answers.stateOfInfluence === "string" ? answers.stateOfInfluence : undefined,
+          });
 
-    if (!res.ok) {
-      setSubmitError(res.error);
+      if (!res.ok) {
+        setSubmitError(res.error);
+        setStage("summary");
+        return;
+      }
+      setResult({ staffId: res.staffId, setupToken: res.setupToken, pendingApproval: res.pendingApproval });
+      setStage("done");
+    } catch (err) {
+      // A thrown server error (as opposed to a handled { ok: false } result)
+      // would otherwise leave the UI stuck on "Submitting…" forever with no
+      // feedback — always fall back to the summary screen with a retry.
+      console.error("Signup submission failed:", err);
+      setSubmitError("Something went wrong submitting your signup. Please try again.");
       setStage("summary");
-      return;
     }
-    setResult({ staffId: res.staffId, setupToken: res.setupToken, pendingApproval: res.pendingApproval });
-    setStage("done");
   }
 
   async function copyCode() {
