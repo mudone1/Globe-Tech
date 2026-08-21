@@ -5,6 +5,7 @@ import { getSupabaseClient } from "@/lib/supabase-client";
 import { rowToPayoutSettings, payoutSettingsToRow, rowToReferralLinkSettings, referralLinkSettingsToRow } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
+import EmailBroadcast from "@/components/EmailBroadcast";
 
 export default function SettingsPage() {
   return (
@@ -18,6 +19,9 @@ export default function SettingsPage() {
           <PayoutSettings />
           <div className="mt-6">
             <ReferralLinkVisibility />
+          </div>
+          <div className="mt-6">
+            <EmailBroadcast />
           </div>
         </div>
       </AdminShell>

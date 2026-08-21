@@ -9,7 +9,7 @@ import { rowToApplicationRecord, rowToStaffRecord } from "@/lib/supabaseMappers"
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import { uploadBankValidationFile, listBankValidationBatches, type BankValidationBatchSummary } from "@/app/admin/verification/actions";
-import { PHASE2_STATUS_INFO } from "@/lib/phase2Status";
+import { PHASE2_STATUS_INFO, PENDING_STATUSES } from "@/lib/phase2Status";
 import type { ApplicationRecord, Phase2VerificationStatus, StaffRecord } from "@/lib/types";
 
 export default function VerificationPage() {
@@ -22,7 +22,6 @@ export default function VerificationPage() {
   );
 }
 
-const PENDING_STATUSES: Phase2VerificationStatus[] = ["awaiting_verification", "account_type_not_verified", "verification_failed"];
 
 function Verification() {
   const [uploading, setUploading] = useState(false);

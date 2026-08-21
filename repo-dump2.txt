@@ -1,0 +1,607 @@
+===== FILE: src/app/admin/staff/actions.ts =====
+"use server";
+
+import { getAdminSupabase } from "@/lib/supabase-admin";
+
+export type ApprovalResult = { ok: true } | { ok: false; error: string };
+
+/** Approves a self-registered Regional Coordinator, making their account active. */
+export async function approvePendingStaff(staffId: string): Promise<ApprovalResult> {
+  try {
+    const { error } = await getAdminSupabase()
+      .from("staff")
+      .update({ active: true, pending_approval: false })
+      .eq("staff_id", staffId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  } catch (err) {
+    console.error("approvePendingStaff failed:", err);
+    return { ok: false, error: "Couldn't approve this account. Please try again." };
+  }
+}
+
+/** Rejects a self-registered Regional Coordinator signup, removing the record entirely. */
+export async function rejectPendingStaff(staffId: string): Promise<ApprovalResult> {
+  try {
+    const { error } = await getAdminSupabase().from("staff").delete().eq("staff_id", staffId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  } catch (err) {
+    console.error("rejectPendingStaff failed:", err);
+    return { ok: false, error: "Couldn't remove this signup. Please try again." };
+  }
+}
+
+===== END: src/app/admin/staff/actions.ts =====
+
+===== FILE: src/app/admin/verification/actions.ts =====
+"use server";
+
+import * as XLSX from "xlsx";
+import { getAdminSupabase } from "@/lib/supabase-admin";
+import { runVerificationBatch } from "@/lib/phase2Verification";
+import { bankValidationBatchToRow } from "@/lib/supabaseMappers";
+import type { BankValidationRow, BankValidationBatchRecord } from "@/lib/types";
+
+function findColumn(headers: string[], candidates: string[]): number {
+  const normalized = headers.map((h) => h.trim().toLowerCase().replace(/[^a-z0-9]/g, ""));
+  for (const candidate of candidates) {
+    const target = candidate.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const idx = normalized.findIndex((h) => h === target || h.includes(target));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+export type UploadBankValidationResult =
+  | { ok: true; batchId: string; rowCount: number; matchedCount: number; partialCount: number }
+  | { ok: false; error: string };
+
+export async function uploadBankValidationFile(formData: FormData, adminUid?: string): Promise<UploadBankValidationResult> {
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) return { ok: false, error: "Choose a file first." };
+  if (file.size > 10 * 1024 * 1024) return { ok: false, error: "That file is too large — max 10MB." };
+
+  try {
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const workbook = XLSX.read(buffer, { type: "buffer" });
+    const sheet = workbook.Sheets[workbook.SheetNames[0]!];
+    if (!sheet) return { ok: false, error: "Couldn't find any data in that file." };
+
+    const raw = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+    if (raw.length < 2) return { ok: false, error: "That file doesn't have any data rows." };
+
+    const headers = (raw[0] as unknown[]).map((h) => String(h ?? ""));
+    const accountNumberCol = findColumn(headers, ["account number", "accountnumber", "acct no", "acctno", "account no"]);
+    const accountNameCol = findColumn(headers, ["account name", "accountname", "name"]);
+    const referenceCol = findColumn(headers, ["reference", "bank reference", "ref"]);
+
+    if (accountNumberCol === -1 || accountNameCol === -1) {
+      return {
+        ok: false,
+        error: 'Couldn\'t find "Account Number" and "Account Name" columns in that file. Check the column headers match.',
+      };
+    }
+
+    const rows: BankValidationRow[] = [];
+    for (let i = 1; i < raw.length; i++) {
+      const row = raw[i] as unknown[];
+      const accountNumber = String(row[accountNumberCol] ?? "").trim();
+      const accountName = String(row[accountNameCol] ?? "").trim();
+      if (!accountNumber || !accountName) continue;
+      const bankReference = referenceCol !== -1 ? String(row[referenceCol] ?? "").trim() : undefined;
+      rows.push({ accountNumber, accountName, ...(bankReference ? { bankReference } : {}) });
+    }
+
+    if (rows.length === 0) {
+      return { ok: false, error: "No valid rows found — check the Account Number and Account Name columns have data." };
+    }
+
+    const db = getAdminSupabase();
+    const batchId = crypto.randomUUID();
+    const { matchedCount, partialCount } = await runVerificationBatch(rows, batchId);
+
+    const record: BankValidationBatchRecord = {
+      id: batchId,
+      fileName: file.name,
+      uploadedAt: new Date().toISOString(),
+      ...(adminUid ? { uploadedBy: adminUid } : {}),
+      rows,
+      matchedCount,
+      partialCount,
+    };
+    const { error: insertErr } = await db.from("bank_validation_batches").insert(bankValidationBatchToRow(record));
+    if (insertErr) throw new Error(insertErr.message);
+
+    return { ok: true, batchId, rowCount: rows.length, matchedCount, partialCount };
+  } catch (err) {
+    console.error("uploadBankValidationFile failed:", err);
+    return { ok: false, error: "Couldn't read that file. Make sure it's a valid CSV or Excel file." };
+  }
+}
+
+export interface BankValidationBatchSummary {
+  id: string;
+  fileName: string;
+  uploadedAt: string;
+  rowCount: number;
+  matchedCount: number;
+  partialCount: number;
+}
+
+export async function listBankValidationBatches(): Promise<BankValidationBatchSummary[]> {
+  const { data, error } = await getAdminSupabase()
+    .from("bank_validation_batches")
+    .select("*")
+    .order("uploaded_at", { ascending: false })
+    .limit(20);
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    fileName: row.file_name,
+    uploadedAt: row.uploaded_at,
+    rowCount: row.rows?.length ?? 0,
+    matchedCount: row.matched_count,
+    partialCount: row.partial_count,
+  }));
+}
+
+===== END: src/app/admin/verification/actions.ts =====
+
+===== FILE: src/lib/supabase-admin.ts =====
+import "server-only";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Server-only Supabase client using the SERVICE ROLE key — bypasses Row
+ * Level Security entirely, same trust level as the Firebase Admin SDK it
+ * replaces (see src/lib/firebase-admin.ts, kept alongside this during the
+ * migration). Never import this file from a "use client" component; the
+ * service role key must never reach the browser.
+ *
+ * Lazy singleton for the same reason firebase-admin.ts is lazy: avoids
+ * throwing during `next build`'s page-data collection pass when env vars
+ * aren't present yet (e.g. a fresh environment before secrets are added).
+ */
+let client: SupabaseClient | undefined;
+
+export function getAdminSupabase(): SupabaseClient {
+  if (client) return client;
+
+  const url = process.env.SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY are not set. Add them to .env.local (see .env.local.example)."
+    );
+  }
+
+  client = createClient(url, serviceRoleKey, {
+    auth: { autoRefreshToken: false, persistSession: false },
+  });
+  return client;
+}
+
+===== END: src/lib/supabase-admin.ts =====
+
+===== FILE: src/lib/supabase-client.ts =====
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+/**
+ * Browser Supabase client using the anon/public key — Row Level Security
+ * (supabase/migrations/0001_init_schema.sql) is what actually enforces who
+ * can read/write which tables from here, exactly like firestore.rules did
+ * for the Firebase client SDK it replaces (src/lib/firebase-client.ts, kept
+ * alongside this during the migration).
+ *
+ * Unlike Firebase's separate getAuth()/getFirestore(), one Supabase client
+ * carries both `.auth` (sign in/out, session) and `.from(table)` (data) —
+ * call sites use client.auth.* where they used to call getFirebaseAuth(),
+ * and client.from("table") where they used to call
+ * getFirebaseDb() + collection(...).
+ *
+ * Lazy singleton for the same build-time-safety reason firebase-client.ts
+ * is lazy — deferred until first real use in the browser.
+ */
+let client: SupabaseClient | undefined;
+
+export function getSupabaseClient(): SupabaseClient {
+  if (client) return client;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!url || !anonKey) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY are not set. Add them to .env.local."
+    );
+  }
+
+  client = createClient(url, anonKey);
+  return client;
+}
+
+===== END: src/lib/supabase-client.ts =====
+
+===== FILE: src/lib/supabaseMappers.ts =====
+/**
+ * Converts between Postgres snake_case rows (supabase/migrations/0001_init_schema.sql)
+ * and the app's existing camelCase record shapes (src/lib/types.ts). Keeping
+ * types.ts as the canonical shape used throughout business logic means the
+ * query-layer rewrite only touches fetch/write code, not the business logic
+ * built on top of it.
+ */
+import type {
+  StaffRecord,
+  StaffSetupTokenRecord,
+  LinkTokenRecord,
+  ApplicationRecord,
+  BankValidationBatchRecord,
+  EmailLogRecord,
+  VisitRecord,
+  PayoutSettingsRecord,
+  PayoutRecord,
+  ReferralLinkSettingsRecord,
+} from "@/lib/types";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type Row = Record<string, any>;
+
+export function rowToStaffRecord(r: Row): StaffRecord {
+  return {
+    staffId: r.staff_id,
+    fullName: r.full_name,
+    tier: r.tier,
+    email: r.email,
+    phone: r.phone,
+    state: r.state,
+    active: r.active,
+    sourceRow: r.source_row,
+    ...(r.reports_to_code ? { reportsToCode: r.reports_to_code } : {}),
+    ...(r.reports_to_name ? { reportsToName: r.reports_to_name } : {}),
+    ...(r.auth_user_id ? { authUid: r.auth_user_id } : {}),
+    ...(r.registration_source ? { registrationSource: r.registration_source } : {}),
+    ...(r.pending_approval !== null && r.pending_approval !== undefined ? { pendingApproval: r.pending_approval } : {}),
+    ...(r.registered_at ? { registeredAt: r.registered_at } : {}),
+    ...(r.staff_code_corrected !== null && r.staff_code_corrected !== undefined ? { staffCodeCorrected: r.staff_code_corrected } : {}),
+    ...(r.staff_code_corrected_at ? { staffCodeCorrectedAt: r.staff_code_corrected_at } : {}),
+    ...(r.original_staff_id ? { originalStaffId: r.original_staff_id } : {}),
+    ...(r.middle_name ? { middleName: r.middle_name } : {}),
+    ...(r.home_address ? { homeAddress: r.home_address } : {}),
+    ...(r.social_media_platform ? { socialMediaPlatform: r.social_media_platform } : {}),
+    ...(r.social_media_username ? { socialMediaUsername: r.social_media_username } : {}),
+    ...(r.nin_number ? { ninNumber: r.nin_number } : {}),
+    ...(r.mou_accepted !== null && r.mou_accepted !== undefined ? { mouAccepted: r.mou_accepted } : {}),
+    ...(r.declaration_accepted !== null && r.declaration_accepted !== undefined ? { declarationAccepted: r.declaration_accepted } : {}),
+    ...(r.state_to_coordinate ? { stateToCoordinate: r.state_to_coordinate } : {}),
+    ...(r.role_specialization ? { roleSpecialization: r.role_specialization } : {}),
+    ...(r.state_of_influence ? { stateOfInfluence: r.state_of_influence } : {}),
+  };
+}
+
+export function staffRecordToRow(s: Partial<StaffRecord>): Row {
+  const row: Row = {};
+  if (s.staffId !== undefined) row.staff_id = s.staffId;
+  if (s.fullName !== undefined) row.full_name = s.fullName;
+  if (s.tier !== undefined) row.tier = s.tier;
+  if (s.email !== undefined) row.email = s.email;
+  if (s.phone !== undefined) row.phone = s.phone;
+  if (s.state !== undefined) row.state = s.state;
+  if (s.active !== undefined) row.active = s.active;
+  if (s.sourceRow !== undefined) row.source_row = s.sourceRow;
+  if (s.reportsToCode !== undefined) row.reports_to_code = s.reportsToCode;
+  if (s.reportsToName !== undefined) row.reports_to_name = s.reportsToName;
+  if (s.authUid !== undefined) row.auth_user_id = s.authUid;
+  if (s.registrationSource !== undefined) row.registration_source = s.registrationSource;
+  if (s.pendingApproval !== undefined) row.pending_approval = s.pendingApproval;
+  if (s.registeredAt !== undefined) row.registered_at = s.registeredAt;
+  if (s.staffCodeCorrected !== undefined) row.staff_code_corrected = s.staffCodeCorrected;
+  if (s.staffCodeCorrectedAt !== undefined) row.staff_code_corrected_at = s.staffCodeCorrectedAt;
+  if (s.originalStaffId !== undefined) row.original_staff_id = s.originalStaffId;
+  if (s.middleName !== undefined) row.middle_name = s.middleName;
+  if (s.homeAddress !== undefined) row.home_address = s.homeAddress;
+  if (s.socialMediaPlatform !== undefined) row.social_media_platform = s.socialMediaPlatform;
+  if (s.socialMediaUsername !== undefined) row.social_media_username = s.socialMediaUsername;
+  if (s.ninNumber !== undefined) row.nin_number = s.ninNumber;
+  if (s.mouAccepted !== undefined) row.mou_accepted = s.mouAccepted;
+  if (s.declarationAccepted !== undefined) row.declaration_accepted = s.declarationAccepted;
+  if (s.stateToCoordinate !== undefined) row.state_to_coordinate = s.stateToCoordinate;
+  if (s.roleSpecialization !== undefined) row.role_specialization = s.roleSpecialization;
+  if (s.stateOfInfluence !== undefined) row.state_of_influence = s.stateOfInfluence;
+  return row;
+}
+
+export function rowToStaffSetupToken(r: Row): StaffSetupTokenRecord {
+  return { token: r.token, staffId: r.staff_id, createdAt: r.created_at, expiresAt: r.expires_at, used: r.used };
+}
+export function staffSetupTokenToRow(t: StaffSetupTokenRecord): Row {
+  return { token: t.token, staff_id: t.staffId, created_at: t.createdAt, expires_at: t.expiresAt, used: t.used };
+}
+
+export function rowToLinkToken(r: Row): LinkTokenRecord {
+  return { token: r.token, staffId: r.staff_id, createdAt: r.created_at, ...(r.is_test ? { isTest: true } : {}) };
+}
+export function linkTokenToRow(t: LinkTokenRecord): Row {
+  return { token: t.token, staff_id: t.staffId, created_at: t.createdAt, is_test: t.isTest ?? null };
+}
+
+export function rowToApplicationRecord(r: Row): ApplicationRecord {
+  return {
+    applicationId: r.application_id,
+    referredBy: r.referred_by,
+    ...(r.referral_token ? { referralToken: r.referral_token } : {}),
+    ...(r.referral_resolution_failed ? { referralResolutionFailed: true } : {}),
+    grantCategory: r.grant_category,
+    grantAmount: r.grant_amount,
+    applicantName: r.applicant_name,
+    phone: r.phone,
+    ...(r.phone_normalized ? { phoneNormalized: r.phone_normalized } : {}),
+    email: r.email,
+    stateOfResidence: r.state_of_residence,
+    businessName: r.business_name,
+    grantNeedExplanation: r.grant_need_explanation,
+    ...(r.business_type ? { businessType: r.business_type } : {}),
+    ...(r.business_location ? { businessLocation: r.business_location } : {}),
+    ...(r.monthly_product_cost !== null && r.monthly_product_cost !== undefined ? { monthlyProductCost: r.monthly_product_cost } : {}),
+    ...(r.cac_number ? { cacNumber: r.cac_number } : {}),
+    ...(r.business_description ? { businessDescription: r.business_description } : {}),
+    declarationAgreed: r.declaration_agreed,
+    status: r.status,
+    createdAt: r.created_at,
+    phase1SubmittedAt: r.phase1_submitted_at,
+    grantCode: r.grant_code,
+    ...(r.is_test ? { isTest: true } : {}),
+    ...(r.bank_account_number ? { bankAccountNumber: r.bank_account_number } : {}),
+    ...(r.bank_account_name ? { bankAccountName: r.bank_account_name } : {}),
+    ...(r.account_details_submitted_at ? { accountDetailsSubmittedAt: r.account_details_submitted_at } : {}),
+    ...(r.phase2_verification_status ? { phase2VerificationStatus: r.phase2_verification_status } : {}),
+    ...(r.phase2_verified_at ? { phase2VerifiedAt: r.phase2_verified_at } : {}),
+    ...(r.phase2_verified_batch_id ? { phase2VerifiedBatchId: r.phase2_verified_batch_id } : {}),
+    ...(r.phase2_admin_note ? { phase2AdminNote: r.phase2_admin_note } : {}),
+  };
+}
+
+export function applicationRecordToRow(a: Partial<ApplicationRecord>): Row {
+  const row: Row = {};
+  if (a.applicationId !== undefined) row.application_id = a.applicationId;
+  if (a.referredBy !== undefined) row.referred_by = a.referredBy;
+  if (a.referralToken !== undefined) row.referral_token = a.referralToken;
+  if (a.referralResolutionFailed !== undefined) row.referral_resolution_failed = a.referralResolutionFailed;
+  if (a.grantCategory !== undefined) row.grant_category = a.grantCategory;
+  if (a.grantAmount !== undefined) row.grant_amount = a.grantAmount;
+  if (a.applicantName !== undefined) row.applicant_name = a.applicantName;
+  if (a.phone !== undefined) row.phone = a.phone;
+  if (a.phoneNormalized !== undefined) row.phone_normalized = a.phoneNormalized;
+  if (a.email !== undefined) row.email = a.email;
+  if (a.stateOfResidence !== undefined) row.state_of_residence = a.stateOfResidence;
+  if (a.businessName !== undefined) row.business_name = a.businessName;
+  if (a.grantNeedExplanation !== undefined) row.grant_need_explanation = a.grantNeedExplanation;
+  if (a.businessType !== undefined) row.business_type = a.businessType;
+  if (a.businessLocation !== undefined) row.business_location = a.businessLocation;
+  if (a.monthlyProductCost !== undefined) row.monthly_product_cost = a.monthlyProductCost;
+  if (a.cacNumber !== undefined) row.cac_number = a.cacNumber;
+  if (a.businessDescription !== undefined) row.business_description = a.businessDescription;
+  if (a.declarationAgreed !== undefined) row.declaration_agreed = a.declarationAgreed;
+  if (a.status !== undefined) row.status = a.status;
+  if (a.createdAt !== undefined) row.created_at = a.createdAt;
+  if (a.phase1SubmittedAt !== undefined) row.phase1_submitted_at = a.phase1SubmittedAt;
+  if (a.grantCode !== undefined) row.grant_code = a.grantCode;
+  if (a.isTest !== undefined) row.is_test = a.isTest;
+  if (a.bankAccountNumber !== undefined) row.bank_account_number = a.bankAccountNumber;
+  if (a.bankAccountName !== undefined) row.bank_account_name = a.bankAccountName;
+  if (a.accountDetailsSubmittedAt !== undefined) row.account_details_submitted_at = a.accountDetailsSubmittedAt;
+  if (a.phase2VerificationStatus !== undefined) row.phase2_verification_status = a.phase2VerificationStatus;
+  if (a.phase2VerifiedAt !== undefined) row.phase2_verified_at = a.phase2VerifiedAt;
+  if (a.phase2VerifiedBatchId !== undefined) row.phase2_verified_batch_id = a.phase2VerifiedBatchId;
+  if (a.phase2AdminNote !== undefined) row.phase2_admin_note = a.phase2AdminNote;
+  return row;
+}
+
+export function rowToBankValidationBatch(r: Row): BankValidationBatchRecord {
+  return {
+    id: r.id,
+    fileName: r.file_name,
+    uploadedAt: r.uploaded_at,
+    ...(r.uploaded_by ? { uploadedBy: r.uploaded_by } : {}),
+    rows: r.rows ?? [],
+    matchedCount: r.matched_count,
+    partialCount: r.partial_count,
+  };
+}
+export function bankValidationBatchToRow(b: BankValidationBatchRecord): Row {
+  return {
+    id: b.id,
+    file_name: b.fileName,
+    uploaded_at: b.uploadedAt,
+    uploaded_by: b.uploadedBy ?? null,
+    rows: b.rows,
+    matched_count: b.matchedCount,
+    partial_count: b.partialCount,
+  };
+}
+
+export function rowToEmailLog(r: Row): EmailLogRecord {
+  return {
+    applicationId: r.application_id,
+    type: r.type,
+    sentAt: r.sent_at,
+    opened: r.opened,
+    clicked: r.clicked,
+    ...(r.error ? { error: r.error } : {}),
+  };
+}
+export function emailLogToRow(e: EmailLogRecord): Row {
+  return { application_id: e.applicationId, type: e.type, sent_at: e.sentAt, opened: e.opened, clicked: e.clicked, error: e.error ?? null };
+}
+
+export function rowToVisit(r: Row): VisitRecord {
+  return { token: r.token, staffId: r.staff_id, visitedAt: r.visited_at, ...(r.is_test ? { isTest: true } : {}) };
+}
+export function visitToRow(v: VisitRecord): Row {
+  return { token: v.token, staff_id: v.staffId, visited_at: v.visitedAt, is_test: v.isTest ?? null };
+}
+
+export function rowToPayoutSettings(r: Row): PayoutSettingsRecord {
+  return { perCompletionAmount: r.per_completion_amount, updatedAt: r.updated_at, ...(r.updated_by ? { updatedBy: r.updated_by } : {}) };
+}
+export function payoutSettingsToRow(id: string, p: PayoutSettingsRecord): Row {
+  return { id, per_completion_amount: p.perCompletionAmount, updated_at: p.updatedAt, updated_by: p.updatedBy ?? null };
+}
+
+export function rowToPayoutRecord(r: Row): PayoutRecord {
+  return { id: r.id, staffId: r.staff_id, amount: r.amount, ...(r.note ? { note: r.note } : {}), paidAt: r.paid_at, ...(r.recorded_by ? { recordedBy: r.recorded_by } : {}) };
+}
+export function payoutRecordToRow(p: PayoutRecord): Row {
+  return { id: p.id, staff_id: p.staffId, amount: p.amount, note: p.note ?? null, paid_at: p.paidAt, recorded_by: p.recordedBy ?? null };
+}
+
+export function rowToReferralLinkSettings(r: Row): ReferralLinkSettingsRecord {
+  return { linksHidden: r.links_hidden, updatedAt: r.updated_at, ...(r.updated_by ? { updatedBy: r.updated_by } : {}) };
+}
+export function referralLinkSettingsToRow(id: string, s: ReferralLinkSettingsRecord): Row {
+  return { id, links_hidden: s.linksHidden, updated_at: s.updatedAt, updated_by: s.updatedBy ?? null };
+}
+
+===== END: src/lib/supabaseMappers.ts =====
+
+===== FILE: src/components/AdminGate.tsx =====
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { getSupabaseClient } from "@/lib/supabase-client";
+
+/**
+ * Client-side convenience gate: keeps signed-out visitors off the admin
+ * pages. This is NOT the real security boundary — Supabase Row Level
+ * Security (supabase/migrations/0001_init_schema.sql) is what actually
+ * enforces who can read/write which tables. Never rely on this component
+ * alone.
+ */
+export default function AdminGate({ children }: { children: React.ReactNode }) {
+  const [signedIn, setSignedIn] = useState<boolean | undefined>(undefined);
+  const router = useRouter();
+
+  useEffect(() => {
+    const supabase = getSupabaseClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSignedIn(Boolean(session));
+      if (!session) router.replace("/admin/login");
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSignedIn(Boolean(session));
+      if (!session) router.replace("/admin/login");
+    });
+
+    return () => subscription.unsubscribe();
+  }, [router]);
+
+  if (signedIn === undefined) {
+    return <div className="flex min-h-screen items-center justify-center text-slate">Loading…</div>;
+  }
+  if (!signedIn) return null; // redirecting
+
+  return <>{children}</>;
+}
+
+===== END: src/components/AdminGate.tsx =====
+
+===== FILE: src/components/AdminShell.tsx =====
+"use client";
+
+import Image from "next/image";
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { LayoutDashboard, FileText, Users, Wallet, Settings, ShieldCheck, LogOut } from "lucide-react";
+import { getSupabaseClient } from "@/lib/supabase-client";
+
+const LINKS = [
+  { href: "/admin/dashboard", label: "Analytics", icon: LayoutDashboard },
+  { href: "/admin/applications", label: "Applications", icon: FileText },
+  { href: "/admin/verification", label: "Verification", icon: ShieldCheck },
+  { href: "/admin/staff", label: "Staff", icon: Users },
+  { href: "/admin/payouts", label: "Payouts", icon: Wallet },
+  { href: "/admin/settings", label: "Settings", icon: Settings },
+];
+
+export default function AdminShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    await getSupabaseClient().auth.signOut();
+    router.push("/admin/login");
+  }
+
+  return (
+    <div className="min-h-screen bg-paper lg:flex">
+      <aside className="flex shrink-0 flex-col justify-between border-b border-line bg-brandDeep px-4 py-5 lg:h-screen lg:w-60 lg:sticky lg:top-0 lg:border-b-0 lg:border-r lg:border-brandDark lg:py-6">
+        <div>
+          <div className="flex items-center gap-2.5 px-2">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-white/10">
+              <Image src="/logo.png" alt="Globe-Tech" width={26} height={26} />
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-white">Globe-Tech</p>
+              <p className="truncate text-xs text-white/50">Admin console</p>
+            </div>
+          </div>
+
+          <nav className="mt-8 flex gap-1 overflow-x-auto lg:mt-8 lg:flex-col lg:overflow-visible">
+            {LINKS.map((l) => {
+              const isActive = pathname === l.href || pathname.startsWith(`${l.href}/`);
+              const Icon = l.icon;
+              return (
+                <Link
+                  key={l.href}
+                  href={l.href}
+                  className={`flex shrink-0 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition ${
+                    isActive ? "bg-brand text-white shadow-sm" : "text-white/60 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <Icon size={17} strokeWidth={2} />
+                  {l.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
+        <button
+          onClick={handleSignOut}
+          className="mt-6 flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/50 transition hover:bg-white/5 hover:text-white lg:mt-0"
+        >
+          <LogOut size={17} strokeWidth={2} />
+          Sign out
+        </button>
+      </aside>
+
+      <div className="min-w-0 flex-1 px-5 py-8 sm:px-8 lg:py-10">{children}</div>
+    </div>
+  );
+}
+
+===== END: src/components/AdminShell.tsx =====
+
+--- Locating Supabase RLS/migrations, if any ---
+===== find: supabase dir =====
+./supabase/migrations/0001_init_schema.sql
+./supabase
+===== find: components dir =====
+src/components/AdminGate.tsx
+src/components/AdminShell.tsx
+src/components/ApplicationForm.tsx
+src/components/AuthIllustration.tsx
+src/components/AuthLayout.tsx
+src/components/BrandMark.tsx
+src/components/ChatApplicationForm.module.css
+src/components/CopyButton.tsx
+src/components/CountUp.tsx
+src/components/HierarchyTree.tsx
+src/components/SignupChatForm.tsx
+src/components/Skeleton.tsx
+src/components/StaffGate.tsx
+src/components/Stepper.tsx

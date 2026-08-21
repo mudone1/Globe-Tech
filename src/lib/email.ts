@@ -1,7 +1,6 @@
 import "server-only";
 
 const DEFAULT_FROM = "Globe-Tech SME Grant <grant@globetechimpact.com>";
-
 function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] || "there";
 }
@@ -190,5 +189,82 @@ export async function sendGrantCodeEmail(opts: {
 
   if (!res.ok) {
     throw new Error(`Resend API error: ${res.status} ${await res.text()}`);
+  }
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Wraps a plain-text broadcast body in minimal, email-safe HTML — matches
+ * the Grant Code email's branding but with no per-recipient content, since
+ * the composer is a plain textarea by design (see EmailBroadcast.tsx).
+ */
+export function buildBroadcastEmailHtml(bodyText: string): string {
+  const escaped = escapeHtml(bodyText).replace(/\n/g, "<br>");
+  return `
+<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:#F5F8F5;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F8F5;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;border:1px solid #DCE6DE;">
+            <tr>
+              <td style="padding:28px 32px;background:#0B2A18;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#C8952A;">Globe-Tech SME Grant Program</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 32px;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.7;color:#0B2A18;">${escaped}</p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+/**
+ * Sends one broadcast email per recipient via Resend's batch endpoint (up
+ * to 100 messages per call — see broadcast-actions.ts for the chunking
+ * loop). Each recipient gets their own message object, so nobody sees
+ * anyone else's address in the "to" field.
+ */
+export async function sendBroadcastEmailBatch(opts: {
+  recipients: string[];
+  subject: string;
+  html: string;
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not set. Add it in Vercel's environment variables.");
+  }
+  const from = process.env.GRANT_EMAIL_FROM || DEFAULT_FROM;
+
+  const payload = opts.recipients.map((to) => ({
+    from,
+    to,
+    subject: opts.subject,
+    html: opts.html,
+  }));
+
+  const res = await fetch("https://api.resend.com/emails/batch", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Resend batch API error: ${res.status} ${await res.text()}`);
   }
 }

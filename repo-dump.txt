@@ -1,0 +1,2676 @@
+===== MISSING: src/app/admin/layout.tsx =====
+===== MISSING: src/app/admin/page.tsx =====
+===== FILE: src/app/admin/settings/page.tsx =====
+"use client";
+
+import { useEffect, useState } from "react";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { rowToPayoutSettings, payoutSettingsToRow, rowToReferralLinkSettings, referralLinkSettingsToRow } from "@/lib/supabaseMappers";
+import AdminGate from "@/components/AdminGate";
+import AdminShell from "@/components/AdminShell";
+
+export default function SettingsPage() {
+  return (
+    <AdminGate>
+      <AdminShell>
+        <div className="mx-auto max-w-2xl">
+          <header className="mb-6">
+            <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
+            <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Settings</h1>
+          </header>
+          <PayoutSettings />
+          <div className="mt-6">
+            <ReferralLinkVisibility />
+          </div>
+        </div>
+      </AdminShell>
+    </AdminGate>
+  );
+}
+
+function PayoutSettings() {
+  const [rate, setRate] = useState<string>("");
+  const [savedRate, setSavedRate] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const { data } = await getSupabaseClient().from("payout_settings").select("*").eq("id", "rate").maybeSingle();
+        if (data) {
+          const record = rowToPayoutSettings(data);
+          setSavedRate(record.perCompletionAmount);
+          setRate(String(record.perCompletionAmount));
+        } else {
+          setRate("0");
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.includes("permission")
+            ? "Access denied. Your account isn't in the admins table yet — check your Supabase admins allowlist."
+            : "Couldn't load settings. Please try refreshing.";
+        setError(message);
+        console.error("Failed to load payout settings:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  async function handleSave() {
+    const amount = Number(rate);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setError("Enter a valid amount (0 or more).");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const record = {
+        perCompletionAmount: amount,
+        updatedAt: new Date().toISOString(),
+        ...(user?.id ? { updatedBy: user.id } : {}),
+      };
+      const { error: upsertErr } = await supabase.from("payout_settings").upsert(payoutSettingsToRow("rate", record));
+      if (upsertErr) throw new Error(upsertErr.message);
+      setSavedRate(amount);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError("Couldn't save. Please try again.");
+      console.error("Failed to save payout settings:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      {error && (
+        <p role="alert" className="mb-6 rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
+          {error}
+        </p>
+      )}
+
+      <div className="card-rise rounded-2xl border border-line bg-white p-6 shadow-sm">
+        <h2 className="font-display text-base font-semibold text-ink">Payout per completed referral</h2>
+        <p className="mt-1 text-sm text-slate">
+          The amount (₦) paid to a staff member for each of their referrals whose application
+          reaches <strong>Phase 2 complete</strong>. This drives the "Expected payout" figure on
+          the Analytics dashboard and the earned amounts on the Payouts page.
+        </p>
+
+        {loading ? (
+          <p className="mt-4 text-sm text-slate">Loading…</p>
+        ) : (
+          <>
+            <div className="mt-5 flex items-end gap-3">
+              <label className="block flex-1">
+                <span className="mb-1.5 block text-sm font-medium text-ink">Amount per completion (₦)</span>
+                <input
+                  className="input"
+                  type="number"
+                  min={0}
+                  step={100}
+                  value={rate}
+                  onChange={(e) => setRate(e.target.value)}
+                />
+              </label>
+              <button onClick={handleSave} disabled={saving} className="btn-primary">
+                {saving ? "Saving…" : saved ? "Saved ✓" : "Save"}
+              </button>
+            </div>
+            {savedRate !== null && (
+              <p className="mt-3 text-xs text-slate">
+                Currently: <strong>₦{savedRate.toLocaleString()}</strong> per completed referral.
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function ReferralLinkVisibility() {
+  const [linksHidden, setLinksHidden] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const { data } = await getSupabaseClient().from("app_settings").select("*").eq("id", "referralLinks").maybeSingle();
+        // Defaults to hidden when never set — mirrors the server default in
+        // areReferralLinksHidden() so this toggle reflects reality on first load.
+        setLinksHidden(data ? rowToReferralLinkSettings(data).linksHidden : true);
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.includes("permission")
+            ? "Access denied. Your account isn't in the admins table yet — check your Supabase admins allowlist."
+            : "Couldn't load settings. Please try refreshing.";
+        setError(message);
+        console.error("Failed to load referral link settings:", err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  async function handleSave(nextHidden: boolean) {
+    setSaving(true);
+    setError(null);
+    try {
+      const supabase = getSupabaseClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const record = {
+        linksHidden: nextHidden,
+        updatedAt: new Date().toISOString(),
+        ...(user?.id ? { updatedBy: user.id } : {}),
+      };
+      const { error: upsertErr } = await supabase.from("app_settings").upsert(referralLinkSettingsToRow("referralLinks", record));
+      if (upsertErr) throw new Error(upsertErr.message);
+      setLinksHidden(nextHidden);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError("Couldn't save. Please try again.");
+      console.error("Failed to save referral link settings:", err);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <>
+      {error && (
+        <p role="alert" className="mb-6 rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
+          {error}
+        </p>
+      )}
+
+      <div className="card-rise rounded-2xl border border-line bg-white p-6 shadow-sm">
+        <h2 className="font-display text-base font-semibold text-ink">Staff referral links</h2>
+        <p className="mt-1 text-sm text-slate">
+          While hidden, staff can still log in and reset their password, but their referral link
+          on the dashboard is replaced with a "check back soon" message — the link itself keeps
+          working underneath, it's just not shown to them. Use this while applications are paused
+          (e.g. awaiting bank verification training) so staff don't start sharing it early.
+        </p>
+
+        {loading || linksHidden === null ? (
+          <p className="mt-4 text-sm text-slate">Loading…</p>
+        ) : (
+          <>
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                onClick={() => handleSave(true)}
+                disabled={saving}
+                className={linksHidden ? "btn-primary" : "btn-secondary"}
+              >
+                Hidden
+              </button>
+              <button
+                onClick={() => handleSave(false)}
+                disabled={saving}
+                className={!linksHidden ? "btn-primary" : "btn-secondary"}
+              >
+                Visible
+              </button>
+              {saved && <span className="text-xs text-brand">Saved ✓</span>}
+            </div>
+            <p className="mt-3 text-xs text-slate">
+              Currently: <strong>{linksHidden ? "Hidden from staff" : "Visible to staff"}</strong>.
+            </p>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+===== END: src/app/admin/settings/page.tsx =====
+
+===== FILE: src/app/admin/applications/page.tsx =====
+"use client";
+
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import Link from "next/link";
+import { getTableCached } from "@/lib/supabaseCache";
+import { rowToApplicationRecord, rowToStaffRecord } from "@/lib/supabaseMappers";
+import AdminGate from "@/components/AdminGate";
+import AdminShell from "@/components/AdminShell";
+import Skeleton from "@/components/Skeleton";
+import { getGrantCategory } from "@/lib/grantCategories";
+import { PHASE2_STATUS_INFO } from "@/lib/phase2Status";
+import type { ApplicationRecord, StaffRecord } from "@/lib/types";
+
+const PAGE_SIZE = 25;
+
+export default function ApplicationsPage() {
+  return (
+    <AdminGate>
+      <AdminShell>
+        <ApplicationsBrowser />
+      </AdminShell>
+    </AdminGate>
+  );
+}
+
+function ApplicationsBrowser() {
+  const [apps, setApps] = useState<ApplicationRecord[] | null>(null);
+  const [staffById, setStaffById] = useState<Map<string, StaffRecord>>(new Map());
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [stateFilter, setStateFilter] = useState("all");
+  const [page, setPage] = useState(0);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [appsData, staffData] = await Promise.all([
+          getTableCached("applications", rowToApplicationRecord),
+          getTableCached("staff", rowToStaffRecord),
+        ]);
+        const rows = [...appsData].sort((a, b) => (b.createdAt || "").localeCompare(a.createdAt || ""));
+        setApps(rows);
+        const map = new Map<string, StaffRecord>();
+        for (const s of staffData) map.set(s.staffId, s);
+        setStaffById(map);
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.includes("permission")
+            ? "Access denied. Your account isn't in the admins collection yet, or the Firestore rules haven't been published — see the README."
+            : "Couldn't load applications. Please try refreshing.";
+        setError(message);
+        console.error("Failed to load applications:", err);
+      }
+    }
+    load();
+  }, []);
+
+  const categories = useMemo(() => {
+    if (!apps) return [];
+    return Array.from(new Set(apps.map((a) => a.grantCategory).filter(Boolean))).sort();
+  }, [apps]);
+
+  const states = useMemo(() => {
+    if (!apps) return [];
+    return Array.from(new Set(apps.map((a) => a.stateOfResidence).filter(Boolean))).sort();
+  }, [apps]);
+
+  const filtered = useMemo(() => {
+    if (!apps) return [];
+    const q = search.trim().toLowerCase();
+    return apps.filter((a) => {
+      if (statusFilter !== "all" && a.status !== statusFilter) return false;
+      if (categoryFilter !== "all" && a.grantCategory !== categoryFilter) return false;
+      if (stateFilter !== "all" && a.stateOfResidence !== stateFilter) return false;
+      if (!q) return true;
+      return (
+        a.applicantName?.toLowerCase().includes(q) ||
+        a.businessName?.toLowerCase().includes(q) ||
+        a.email?.toLowerCase().includes(q)
+      );
+    });
+  }, [apps, search, statusFilter, categoryFilter, stateFilter]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageRows = filtered.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE);
+
+  function resetPage<T>(setter: (v: T) => void) {
+    return (v: T) => {
+      setter(v);
+      setPage(0);
+    };
+  }
+
+  const statusLabel: Record<string, string> = {
+    phase1_submitted: "Phase 1 submitted",
+    phase2_email_sent: "Phase 2 email sent",
+    phase2_marked_complete: "Phase 2 complete",
+  };
+
+  return (
+    <div className="mx-auto max-w-6xl">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Applications</h1>
+          <p className="mt-1 text-sm text-slate">
+            {apps ? `${filtered.length} of ${apps.length} application${apps.length === 1 ? "" : "s"}` : "Loading…"}
+          </p>
+        </div>
+      </header>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input
+          className="input max-w-xs"
+          placeholder="Search name, business, email…"
+          value={search}
+          onChange={(e) => resetPage(setSearch)(e.target.value)}
+        />
+        <select
+          className="input max-w-[180px]"
+          value={statusFilter}
+          onChange={(e) => resetPage(setStatusFilter)(e.target.value)}
+        >
+          <option value="all">All statuses</option>
+          <option value="phase1_submitted">Phase 1 submitted</option>
+          <option value="phase2_email_sent">Phase 2 email sent</option>
+          <option value="phase2_marked_complete">Phase 2 complete</option>
+        </select>
+        <select
+          className="input max-w-[180px]"
+          value={categoryFilter}
+          onChange={(e) => resetPage(setCategoryFilter)(e.target.value)}
+        >
+          <option value="all">All grant categories</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {getGrantCategory(c).name}
+            </option>
+          ))}
+        </select>
+        <select
+          className="input max-w-[180px]"
+          value={stateFilter}
+          onChange={(e) => resetPage(setStateFilter)(e.target.value)}
+        >
+          <option value="all">All states</option>
+          {states.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="overflow-hidden rounded-card border border-line bg-white">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[860px] text-left text-sm">
+          <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
+            <tr>
+              <th className="px-4 py-3">S/N</th>
+              <th className="px-4 py-3">Applicant</th>
+              <th className="px-4 py-3">Phone</th>
+              <th className="px-4 py-3">Business</th>
+              <th className="px-4 py-3">Grant category</th>
+              <th className="px-4 py-3">State</th>
+              <th className="px-4 py-3">Amount</th>
+              <th className="px-4 py-3">Referred by</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3">Submitted</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!apps && !error && (
+              <>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-t border-line">
+                    {Array.from({ length: 10 }).map((_, j) => (
+                      <td key={j} className="px-4 py-3.5">
+                        <Skeleton className="h-3.5 w-full max-w-[110px]" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </>
+            )}
+            {error && (
+              <tr>
+                <td colSpan={10} className="px-4 py-8 text-center text-bad">
+                  {error}
+                </td>
+              </tr>
+            )}
+            {apps && !error && pageRows.length === 0 && (
+              <tr>
+                <td colSpan={10} className="px-4 py-8 text-center text-slate">
+                  {apps.length === 0 ? "No applications yet." : "No applications match your filters."}
+                </td>
+              </tr>
+            )}
+            {pageRows.map((a, i) => {
+              const staff = staffById.get(a.referredBy);
+              return (
+                <tr
+                  key={a.applicationId}
+                  className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                  style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
+                >
+                  <td className="px-4 py-3 text-slate">{page * PAGE_SIZE + i + 1}</td>
+                  <td className="px-4 py-3">
+                    <Link
+                      href={`/admin/applications/${a.applicationId}`}
+                      className="font-medium text-ink hover:text-brand hover:underline"
+                    >
+                      {a.applicantName || "—"}
+                    </Link>
+                    {a.isTest && (
+                      <span className="ml-2 rounded-full bg-gold/15 px-2 py-0.5 text-xs font-medium text-gold">Test</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-slate">{a.phone || "—"}</td>
+                  <td className="px-4 py-3 text-slate">{a.businessName || "—"}</td>
+                  <td className="px-4 py-3 text-slate">{a.grantCategory ? getGrantCategory(a.grantCategory).name : "—"}</td>
+                  <td className="px-4 py-3 text-slate">{a.stateOfResidence || "—"}</td>
+                  <td className="px-4 py-3 text-slate">
+                    {a.grantAmount ? `₦${a.grantAmount.toLocaleString()}` : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-slate">
+                    {a.referredBy === "unassigned" ? "Unassigned" : staff?.fullName ?? a.referredBy}
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                        a.status === "phase2_marked_complete"
+                          ? "bg-brand/10 text-brand"
+                          : a.phase2VerificationStatus === "invalid_account"
+                            ? "bg-bad/10 text-bad"
+                            : "bg-goldSoft text-ink"
+                      }`}
+                    >
+                      {a.phase2VerificationStatus ? PHASE2_STATUS_INFO[a.phase2VerificationStatus].label : statusLabel[a.status] ?? a.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate">
+                    {a.createdAt ? new Date(a.createdAt).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" }) : "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        </div>
+      </div>
+
+      {apps && filtered.length > PAGE_SIZE && (
+        <div className="mt-4 flex items-center justify-between text-sm text-slate">
+          <span>
+            Page {page + 1} of {pageCount}
+          </span>
+          <div className="flex gap-2">
+            <button
+              className="btn-secondary"
+              disabled={page === 0}
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+            >
+              Previous
+            </button>
+            <button
+              className="btn-secondary"
+              disabled={page >= pageCount - 1}
+              onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+            >
+              Next
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+===== END: src/app/admin/applications/page.tsx =====
+
+===== FILE: src/app/admin/dashboard/page.tsx =====
+"use client";
+
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { FileText, Wallet, CheckCircle2, TrendingUp, Download } from "lucide-react";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { getTableCached } from "@/lib/supabaseCache";
+import { rowToApplicationRecord, rowToStaffRecord, rowToVisit, rowToPayoutSettings } from "@/lib/supabaseMappers";
+import AdminGate from "@/components/AdminGate";
+import AdminShell from "@/components/AdminShell";
+import Skeleton from "@/components/Skeleton";
+import { KpiCard, KPI_GRADIENTS } from "@/components/dashboard/KpiCard";
+import { BarBreakdown, type Count } from "@/components/dashboard/BarBreakdown";
+import { DonutLegendCard } from "@/components/dashboard/DonutLegendCard";
+import { TimeSeriesAreaCard } from "@/components/dashboard/TimeSeriesAreaCard";
+import { ROLE_CONFIGS, ROLE_ORDER } from "@/lib/staffRoles";
+import { getGrantCategory } from "@/lib/grantCategories";
+import { initials } from "@/lib/initials";
+import type { ApplicationRecord, StaffRecord, VisitRecord } from "@/lib/types";
+
+const CANONICAL_TIERS = ROLE_ORDER.map((r) => ROLE_CONFIGS[r].tier);
+
+export default function DashboardPage() {
+  return (
+    <AdminGate>
+      <AdminShell>
+        <Dashboard />
+      </AdminShell>
+    </AdminGate>
+  );
+}
+
+function countBy(apps: ApplicationRecord[], key: keyof ApplicationRecord): Count[] {
+  const counts = new Map<string, number>();
+  for (const a of apps) {
+    const v = a[key];
+    if (typeof v === "string" && v.trim()) counts.set(v, (counts.get(v) ?? 0) + 1);
+  }
+  return Array.from(counts.entries())
+    .map(([name, count]) => ({ name, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function Dashboard() {
+  const [apps, setApps] = useState<ApplicationRecord[] | null>(null);
+  const [staffById, setStaffById] = useState<Map<string, StaffRecord>>(new Map());
+  const [visits, setVisits] = useState<VisitRecord[]>([]);
+  const [payoutRate, setPayoutRate] = useState(0);
+  const [tierFilter, setTierFilter] = useState<string>("all");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [appsData, staffData, visitsData, settingsResult] = await Promise.all([
+          getTableCached("applications", rowToApplicationRecord),
+          getTableCached("staff", rowToStaffRecord),
+          getTableCached("visits", rowToVisit),
+          getSupabaseClient().from("payout_settings").select("*").eq("id", "rate").maybeSingle(),
+        ]);
+        setApps(appsData.filter((a) => !a.isTest));
+        const map = new Map<string, StaffRecord>();
+        for (const s of staffData) map.set(s.staffId, s);
+        setStaffById(map);
+        setVisits(visitsData.filter((v) => !v.isTest));
+        if (settingsResult.data) {
+          setPayoutRate(rowToPayoutSettings(settingsResult.data).perCompletionAmount);
+        }
+      } catch (err) {
+        const message =
+          err instanceof Error && err.message.includes("permission")
+            ? "Access denied. Your account isn't in the admins collection yet, or the Firestore rules haven't been published — see the README."
+            : "Couldn't load dashboard data. Please try refreshing.";
+        setError(message);
+        console.error("Failed to load dashboard:", err);
+      }
+    }
+    load();
+  }, []);
+
+  const kpis = useMemo(() => {
+    if (!apps) return null;
+    const completed = apps.filter((a) => a.status === "phase2_marked_complete").length;
+    return {
+      totalApplications: apps.length,
+      expectedPayout: completed * payoutRate,
+      completedCount: completed,
+      completionRate: apps.length ? Math.round((completed / apps.length) * 100) : 0,
+      totalStaff: staffById.size,
+      totalVisits: visits.length,
+      conversionRate: visits.length ? Math.round((apps.length / visits.length) * 100) : 0,
+    };
+  }, [apps, staffById, visits, payoutRate]);
+
+  const timeSeries = useMemo(() => {
+    if (!apps) return [];
+    const counts = new Map<string, number>();
+    for (const a of apps) {
+      if (!a.createdAt) continue;
+      const day = a.createdAt.slice(0, 10);
+      counts.set(day, (counts.get(day) ?? 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([date, count]) => ({ date: date.slice(5), count }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [apps]);
+
+  const leaderboard = useMemo(() => {
+    if (!apps) return [];
+    const counts = new Map<string, { submissions: number; completed: number; visits: number }>();
+    for (const a of apps) {
+      const key = a.referredBy || "unassigned";
+      const entry = counts.get(key) ?? { submissions: 0, completed: 0, visits: 0 };
+      entry.submissions += 1;
+      if (a.status === "phase2_marked_complete") entry.completed += 1;
+      counts.set(key, entry);
+    }
+    for (const v of visits) {
+      const key = v.staffId || "unassigned";
+      const entry = counts.get(key) ?? { submissions: 0, completed: 0, visits: 0 };
+      entry.visits += 1;
+      counts.set(key, entry);
+    }
+    let rows = Array.from(counts.entries()).map(([staffId, c]) => {
+      const staff = staffById.get(staffId);
+      return {
+        staffId,
+        name: staff?.fullName ?? (staffId === "unassigned" ? "Unassigned" : staffId),
+        tier: staff?.tier ?? "—",
+        visits: c.visits,
+        submissions: c.submissions,
+        completed: c.completed,
+        conversionRate: c.visits ? Math.round((c.submissions / c.visits) * 100) : c.submissions ? 100 : 0,
+      };
+    });
+    if (tierFilter !== "all") rows = rows.filter((r) => r.tier === tierFilter);
+    rows.sort((a, b) => b.submissions - a.submissions);
+    return rows;
+  }, [apps, staffById, visits, tierFilter]);
+
+  const breakdowns = useMemo(() => {
+    if (!apps) return null;
+    const categoryNames = apps.map((a) => (a.grantCategory ? getGrantCategory(a.grantCategory).name : "")).filter(Boolean);
+    const categoryCounts = new Map<string, number>();
+    for (const name of categoryNames) categoryCounts.set(name, (categoryCounts.get(name) ?? 0) + 1);
+    const grantCategory = Array.from(categoryCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    const tierCounts = new Map<string, number>();
+    for (const a of apps) {
+      if (!a.grantCategory) continue;
+      const tier = getGrantCategory(a.grantCategory).tier;
+      const label = tier === "trader" ? "Street/market/shop trader" : tier === "enterprise" ? "Registered Business Name" : "Registered LLC";
+      tierCounts.set(label, (tierCounts.get(label) ?? 0) + 1);
+    }
+    const tierSplit = Array.from(tierCounts.entries())
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return {
+      grantCategory,
+      tierSplit,
+      states: countBy(apps, "stateOfResidence").slice(0, 8),
+      businessType: countBy(apps, "businessType").slice(0, 8),
+    };
+  }, [apps]);
+
+  function exportCsv() {
+    if (!apps) return;
+    const headers = [
+      "applicationId", "applicantName", "phone", "email", "stateOfResidence", "businessName",
+      "grantCategory", "grantAmount", "grantNeedExplanation", "businessType", "businessLocation",
+      "monthlyProductCost", "cacNumber", "businessDescription",
+      "referredBy", "grantCode", "status", "createdAt",
+    ];
+    const lines = [
+      headers.join(","),
+      ...apps.map((a) =>
+        headers
+          .map((h) => {
+            const raw = (a as unknown as Record<string, unknown>)[h];
+            const cell = Array.isArray(raw) ? raw.join("; ") : (raw ?? "");
+            return `"${String(cell).replace(/"/g, '""')}"`;
+          })
+          .join(",")
+      ),
+    ];
+    const blob = new Blob([lines.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `applications-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const tiers = useMemo(() => {
+    const present = new Set<string>();
+    staffById.forEach((s) => {
+      if (s.tier && s.tier.trim()) present.add(s.tier.trim());
+    });
+    const extra = Array.from(present)
+      .filter((t) => !(CANONICAL_TIERS as string[]).includes(t))
+      .sort();
+    return ["all", ...CANONICAL_TIERS, ...extra];
+  }, [staffById]);
+
+  return (
+    <div className="mx-auto max-w-7xl">
+      <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin · Analytics</p>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink sm:text-3xl">Overview</h1>
+          <p className="mt-1 text-sm text-slate">
+            {kpis ? `${kpis.totalStaff} staff synced · ${kpis.totalVisits.toLocaleString()} link visits tracked` : "Referral performance and application insights."}
+          </p>
+        </div>
+        <button onClick={exportCsv} className="btn-secondary flex items-center gap-2">
+          <Download size={15} />
+          Export CSV
+        </button>
+      </header>
+
+      {error && (
+        <p role="alert" className="mb-6 rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">
+          {error}
+        </p>
+      )}
+
+      {!apps && !error && (
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="rounded-2xl border border-line bg-white p-5 shadow-sm">
+              <Skeleton className="h-10 w-10 rounded-xl" />
+              <Skeleton className="mt-4 h-7 w-24" />
+              <Skeleton className="mt-2 h-3.5 w-20" />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {kpis && (
+        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <KpiCard
+            index={0}
+            icon={FileText}
+            gradient={KPI_GRADIENTS[0]}
+            label="Applications"
+            numericValue={kpis.totalApplications}
+          />
+          <KpiCard
+            index={1}
+            icon={Wallet}
+            gradient={KPI_GRADIENTS[1]}
+            label="Expected payout"
+            prefix="₦"
+            numericValue={kpis.expectedPayout}
+            sub={`${kpis.completedCount} completed × ₦${payoutRate.toLocaleString()}`}
+          />
+          <KpiCard
+            index={2}
+            icon={CheckCircle2}
+            gradient={KPI_GRADIENTS[2]}
+            label="Phase 2 complete"
+            numericValue={kpis.completionRate}
+            suffix="%"
+          />
+          <KpiCard
+            index={3}
+            icon={TrendingUp}
+            gradient={KPI_GRADIENTS[3]}
+            label="Visit → submit"
+            numericValue={kpis.conversionRate}
+            suffix="%"
+          />
+        </div>
+      )}
+
+      <div className="mb-6 grid grid-cols-1 gap-5 xl:grid-cols-3">
+        <div className="xl:col-span-2" style={{ "--delay": "280ms" } as CSSProperties}>
+          <TimeSeriesAreaCard title="Applications over time" data={timeSeries} />
+        </div>
+
+        <div className="card-rise lift-hover" style={{ "--delay": "340ms" } as CSSProperties}>
+          <DonutLegendCard title="Grant category" data={breakdowns?.grantCategory ?? []} />
+        </div>
+      </div>
+
+      <div className="card-rise mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm" style={{ "--delay": "400ms" } as CSSProperties}>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-6 py-4">
+          <h2 className="font-display text-base font-semibold text-ink">Referral leaderboard</h2>
+          <select className="input max-w-xs" value={tierFilter} onChange={(e) => setTierFilter(e.target.value)}>
+            {tiers.map((t) => (
+              <option key={t} value={t}>
+                {t === "all" ? "All tiers" : t}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        {leaderboard.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-slate">No referral activity yet.</p>
+        ) : (
+          <>
+            <div className="hidden items-center gap-4 px-6 pt-4 text-xs uppercase tracking-wide text-slate sm:flex">
+              <span className="w-9" />
+              <span className="min-w-0 flex-1">Staff</span>
+              <span className="hidden w-32 text-right sm:block">Conversion</span>
+              <span className="w-16 text-right">Visits</span>
+              <span className="w-20 text-right">Submitted</span>
+              <span className="w-20 text-right">Phase 2</span>
+            </div>
+            <div className="divide-y divide-line">
+              {leaderboard.map((r, i) => (
+                <div
+                  key={r.staffId}
+                  className="row-rise flex items-center gap-4 px-6 py-3.5 transition-colors duration-150 hover:bg-paper"
+                  style={{ "--delay": `${Math.min(i, 10) * 45}ms` } as CSSProperties}
+                >
+                  <div
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full font-mono text-xs font-semibold text-white shadow-sm"
+                    style={{ background: KPI_GRADIENTS[i % KPI_GRADIENTS.length] }}
+                  >
+                    {initials(r.name)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-ink">{r.name}</p>
+                    <p className="text-xs text-slate">{r.tier}</p>
+                  </div>
+                  <div className="hidden w-32 items-center gap-2 sm:flex">
+                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-mist">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-700 ease-out"
+                        style={{
+                          width: `${Math.min(100, r.conversionRate)}%`,
+                          transitionDelay: `${Math.min(i, 10) * 45}ms`,
+                          background: "linear-gradient(90deg, #0E7A3A, #C8952A)",
+                        }}
+                      />
+                    </div>
+                    <span className="w-9 text-right text-xs text-slate">{r.conversionRate}%</span>
+                  </div>
+                  <div className="w-16 text-right text-sm text-slate">{r.visits || "—"}</div>
+                  <div className="w-20 text-right text-sm font-medium text-ink">{r.submissions}</div>
+                  <div className="w-20 text-right text-sm text-slate">{r.completed}</div>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {!apps && !error && (
+        <div className="mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+          <div className="border-b border-line px-6 py-4">
+            <Skeleton className="h-5 w-40" />
+          </div>
+          <div className="divide-y divide-line">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-4 px-6 py-3.5">
+                <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+                <div className="flex-1">
+                  <Skeleton className="h-3.5 w-32" />
+                  <Skeleton className="mt-1.5 h-3 w-20" />
+                </div>
+                <Skeleton className="hidden h-1.5 w-32 sm:block" />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {breakdowns && (
+        <section>
+          <h2 className="mb-3 font-display text-base font-semibold text-ink">Applicant response breakdown</h2>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
+            <div className="card-rise lift-hover" style={{ "--delay": "460ms" } as CSSProperties}>
+              <BarBreakdown title="Applications by grant category" data={breakdowns.grantCategory} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "500ms" } as CSSProperties}>
+              <BarBreakdown title="Top states" data={breakdowns.states} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "540ms" } as CSSProperties}>
+              <DonutLegendCard title="Applicant type" data={breakdowns.tierSplit} />
+            </div>
+            <div className="card-rise lift-hover" style={{ "--delay": "580ms" } as CSSProperties}>
+              <BarBreakdown title="Top business types (traders)" data={breakdowns.businessType} />
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+===== END: src/app/admin/dashboard/page.tsx =====
+
+===== FILE: src/app/admin/verification/page.tsx =====
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import * as XLSX from "xlsx";
+import { getSupabaseClient } from "@/lib/supabase-client";
+import { getTableCached } from "@/lib/supabaseCache";
+import { selectAllRows } from "@/lib/supabasePaginate";
+import { rowToApplicationRecord, rowToStaffRecord } from "@/lib/supabaseMappers";
+import AdminGate from "@/components/AdminGate";
+import AdminShell from "@/components/AdminShell";
+import { uploadBankValidationFile, listBankValidationBatches, type BankValidationBatchSummary } from "@/app/admin/verification/actions";
+import { PHASE2_STATUS_INFO } from "@/lib/phase2Status";
+import type { ApplicationRecord, Phase2VerificationStatus, StaffRecord } from "@/lib/types";
+
+export default function VerificationPage() {
+  return (
+    <AdminGate>
+      <AdminShell>
+        <Verification />
+      </AdminShell>
+    </AdminGate>
+  );
+}
+
+const PENDING_STATUSES: Phase2VerificationStatus[] = ["awaiting_verification", "account_type_not_verified", "verification_failed"];
+
+function Verification() {
+  const [uploading, setUploading] = useState(false);
+  const [uploadResult, setUploadResult] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [batches, setBatches] = useState<BankValidationBatchSummary[] | null>(null);
+  const [pending, setPending] = useState<ApplicationRecord[] | null>(null);
+  const [staffById, setStaffById] = useState<Map<string, StaffRecord>>(new Map());
+  const [actingOn, setActingOn] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  async function loadPending() {
+    try {
+      const [pendingRows, staffData] = await Promise.all([
+        selectAllRows<Record<string, unknown>>((from, to) =>
+          getSupabaseClient().from("applications").select("*").in("phase2_verification_status", PENDING_STATUSES).range(from, to)
+        ),
+        getTableCached("staff", rowToStaffRecord),
+      ]);
+      setPending(pendingRows.map(rowToApplicationRecord));
+      const map = new Map<string, StaffRecord>();
+      for (const s of staffData) map.set(s.staffId, s);
+      setStaffById(map);
+    } catch (err) {
+      console.error("Failed to load pending verifications:", err);
+    }
+  }
+
+  function staffNameFor(referredBy: string): string {
+    if (referredBy === "unassigned") return "Unassigned";
+    return staffById.get(referredBy)?.fullName ?? referredBy;
+  }
+
+  const filteredPending = (pending ?? []).filter((a) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      a.applicantName?.toLowerCase().includes(q) ||
+      a.phone?.toLowerCase().includes(q) ||
+      a.referredBy?.toLowerCase().includes(q) ||
+      staffNameFor(a.referredBy).toLowerCase().includes(q)
+    );
+  });
+
+  async function loadBatches() {
+    try {
+      setBatches(await listBankValidationBatches());
+    } catch (err) {
+      console.error("Failed to load batch history:", err);
+    }
+  }
+
+  useEffect(() => {
+    loadPending();
+    loadBatches();
+  }, []);
+
+  async function handleUpload() {
+    const file = fileRef.current?.files?.[0];
+    if (!file) {
+      setUploadError("Choose a file first.");
+      return;
+    }
+    setUploading(true);
+    setUploadError(null);
+    setUploadResult(null);
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await uploadBankValidationFile(formData);
+    setUploading(false);
+    if (!res.ok) {
+      setUploadError(res.error);
+      return;
+    }
+    setUploadResult(
+      `Processed ${res.rowCount} rows: ${res.matchedCount} fully verified, ${res.partialCount} name-matched but account unconfirmed.`
+    );
+    if (fileRef.current) fileRef.current.value = "";
+    await Promise.all([loadPending(), loadBatches()]);
+  }
+
+  async function markInvalid(applicationId: string) {
+    setActingOn(applicationId);
+    try {
+      await getSupabaseClient()
+        .from("applications")
+        .update({ phase2_verification_status: "invalid_account" satisfies Phase2VerificationStatus })
+        .eq("application_id", applicationId);
+      await loadPending();
+    } finally {
+      setActingOn(null);
+    }
+  }
+
+  async function markCompleteManually(applicationId: string) {
+    setActingOn(applicationId);
+    try {
+      await getSupabaseClient()
+        .from("applications")
+        .update({
+          phase2_verification_status: "completed" satisfies Phase2VerificationStatus,
+          phase2_verified_at: new Date().toISOString(),
+          status: "phase2_marked_complete",
+        })
+        .eq("application_id", applicationId);
+      await loadPending();
+    } finally {
+      setActingOn(null);
+    }
+  }
+
+  function exportExcel() {
+    const rows = filteredPending.map((a, i) => ({
+      "S/N": i + 1,
+      "Applicant Name": a.applicantName ?? "",
+      "Phone Number": a.phone ?? "",
+      "Staff Code": a.referredBy === "unassigned" ? "Unassigned" : a.referredBy,
+      "Staff Name": staffNameFor(a.referredBy),
+      "Account Name": a.bankAccountName ?? "",
+      "Account Number": a.bankAccountNumber ?? "",
+      "Status": a.phase2VerificationStatus ? PHASE2_STATUS_INFO[a.phase2VerificationStatus].label : "",
+    }));
+    const sheet = XLSX.utils.json_to_sheet(rows);
+    sheet["!cols"] = [
+      { wch: 5 }, { wch: 24 }, { wch: 15 }, { wch: 20 }, { wch: 20 }, { wch: 24 }, { wch: 16 }, { wch: 22 },
+    ];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, sheet, "Pending Verification");
+    const date = new Date().toISOString().slice(0, 10);
+    XLSX.writeFile(wb, `pending-verification-${date}.xlsx`);
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <header className="mb-6">
+        <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
+        <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Phase 2 Verification</h1>
+        <p className="mt-1 text-sm text-slate">
+          Upload FirstBank's account validation data to automatically verify applicants' Phase 2
+          account details. Account numbers and names here are sensitive — this page and the raw
+          upload data are admin-only.
+        </p>
+      </header>
+
+      <div className="mb-6 rounded-2xl border border-line bg-white p-6 shadow-sm">
+        <h2 className="font-display text-base font-semibold text-ink">Upload validation file</h2>
+        <p className="mt-1 text-sm text-slate">
+          CSV or Excel file with <strong>Account Number</strong> and <strong>Account Name</strong> columns
+          (an optional Reference column is fine too). Every applicant currently awaiting verification is
+          automatically re-checked against this file.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls" className="input max-w-xs" />
+          <button onClick={handleUpload} disabled={uploading} className="btn-primary">
+            {uploading ? "Processing…" : "Upload & verify"}
+          </button>
+        </div>
+        {uploadResult && <p className="mt-3 rounded-md bg-good/10 px-3 py-2 text-sm text-good">{uploadResult}</p>}
+        {uploadError && <p className="mt-3 rounded-md bg-bad/10 px-3 py-2 text-sm text-bad">{uploadError}</p>}
+      </div>
+
+      <div className="mb-6 overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+        <div className="border-b border-line px-6 py-4">
+          <h2 className="font-display text-base font-semibold text-ink">Upload history</h2>
+        </div>
+        <table className="w-full text-left text-sm">
+          <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
+            <tr>
+              <th className="px-4 py-3">File</th>
+              <th className="px-4 py-3">Uploaded</th>
+              <th className="px-4 py-3">Rows</th>
+              <th className="px-4 py-3">Fully verified</th>
+              <th className="px-4 py-3">Name-matched only</th>
+            </tr>
+          </thead>
+          <tbody>
+            {batches && batches.length === 0 && (
+              <tr>
+                <td colSpan={5} className="px-4 py-8 text-center text-slate">
+                  No uploads yet.
+                </td>
+              </tr>
+            )}
+            {batches?.map((b) => (
+              <tr key={b.id} className="border-t border-line">
+                <td className="px-4 py-3 text-ink">{b.fileName}</td>
+                <td className="px-4 py-3 text-slate">{new Date(b.uploadedAt).toLocaleString("en-NG")}</td>
+                <td className="px-4 py-3">{b.rowCount}</td>
+                <td className="px-4 py-3 text-good">{b.matchedCount}</td>
+                <td className="px-4 py-3 text-gold">{b.partialCount}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-line bg-white shadow-sm">
+        <div className="border-b border-line px-6 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-base font-semibold text-ink">Pending verification</h2>
+              <p className="mt-1 text-sm text-slate">Applicants who've submitted account details but aren't fully verified yet.</p>
+            </div>
+            <button
+              onClick={exportExcel}
+              disabled={filteredPending.length === 0}
+              className="btn-secondary text-sm disabled:opacity-50"
+            >
+              Export to Excel
+            </button>
+          </div>
+          <input
+            className="input mt-3 max-w-xs"
+            placeholder="Search name, phone, staff code…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[900px] text-left text-sm">
+          <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
+            <tr>
+              <th className="px-4 py-3">S/N</th>
+              <th className="px-4 py-3">Applicant</th>
+              <th className="px-4 py-3">Phone number</th>
+              <th className="px-4 py-3">Staff code</th>
+              <th className="px-4 py-3">Staff name</th>
+              <th className="px-4 py-3">Account name</th>
+              <th className="px-4 py-3">Account number</th>
+              <th className="px-4 py-3">Status</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {pending && pending.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-slate">
+                  Nobody's pending verification right now.
+                </td>
+              </tr>
+            )}
+            {pending && pending.length > 0 && filteredPending.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center text-slate">
+                  No pending applicants match "{search}".
+                </td>
+              </tr>
+            )}
+            {filteredPending.map((a, i) => (
+              <tr key={a.applicationId} className="border-t border-line">
+                <td className="px-4 py-3 text-slate">{i + 1}</td>
+                <td className="px-4 py-3 font-medium text-ink">{a.applicantName}</td>
+                <td className="px-4 py-3 text-slate">{a.phone}</td>
+                <td className="px-4 py-3 font-mono text-xs text-slate">
+                  {a.referredBy === "unassigned" ? "Unassigned" : a.referredBy}
+                </td>
+                <td className="px-4 py-3 text-slate">{staffNameFor(a.referredBy)}</td>
+                <td className="px-4 py-3 text-slate">{a.bankAccountName}</td>
+                <td className="px-4 py-3 font-mono text-xs text-slate">{a.bankAccountNumber}</td>
+                <td className="px-4 py-3">
+                  <span className="rounded-full bg-goldSoft px-2.5 py-1 text-xs font-medium text-ink">
+                    {a.phase2VerificationStatus ? PHASE2_STATUS_INFO[a.phase2VerificationStatus].label : "—"}
+                  </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  <div className="flex justify-end gap-2">
+                    <button
+                      className="btn-secondary text-xs"
+                      disabled={actingOn === a.applicationId}
+                      onClick={() => markInvalid(a.applicationId)}
+                    >
+                      Mark invalid
+                    </button>
+                    <button
+                      className="btn-primary text-xs"
+                      disabled={actingOn === a.applicationId}
+                      onClick={() => markCompleteManually(a.applicationId)}
+                    >
+                      Mark complete
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+===== END: src/app/admin/verification/page.tsx =====
+
+===== FILE: src/app/admin/staff/page.tsx =====
+"use client";
+
+import { useCallback, useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
+import { getTableCached, invalidateTableCache } from "@/lib/supabaseCache";
+import { rowToStaffRecord, rowToLinkToken } from "@/lib/supabaseMappers";
+import AdminGate from "@/components/AdminGate";
+import AdminShell from "@/components/AdminShell";
+import CopyButton from "@/components/CopyButton";
+import Skeleton from "@/components/Skeleton";
+import HierarchyTree from "@/components/HierarchyTree";
+import { buildHierarchyForest, countDescendants, type HierarchyNode } from "@/lib/staffHierarchy";
+import { approvePendingStaff, rejectPendingStaff } from "@/app/admin/staff/actions";
+import type { StaffRecord } from "@/lib/types";
+
+interface Row extends StaffRecord {
+  link: string;
+}
+
+export default function StaffPage() {
+  return (
+    <AdminGate>
+      <AdminShell>
+        <StaffTable />
+      </AdminShell>
+    </AdminGate>
+  );
+}
+
+function StaffTable() {
+  const [rows, setRows] = useState<Row[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [view, setView] = useState<"hierarchy" | "list">("hierarchy");
+  const [isReviewing, startReview] = useTransition();
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+
+  const load = useCallback(async (force = false) => {
+    try {
+      const [staffData, tokensData] = await Promise.all([
+        getTableCached("staff", rowToStaffRecord, { force }),
+        getTableCached("link_tokens", rowToLinkToken, { force }),
+      ]);
+
+      const tokenByStaffId = new Map<string, string>();
+      for (const t of tokensData) tokenByStaffId.set(t.staffId, t.token);
+
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "";
+      const result: Row[] = staffData.map((s) => {
+        const token = tokenByStaffId.get(s.staffId);
+        return {
+          ...s,
+          link: token ? `${appUrl}/apply/${token}` : "(token not generated yet)",
+        };
+      });
+
+      result.sort((a, b) => a.fullName.localeCompare(b.fullName));
+      setRows(result);
+      setError(null);
+    } catch (err) {
+      const message =
+        err instanceof Error && err.message.includes("permission")
+          ? "Access denied. Your account isn't in the admins collection yet, or the Firestore rules haven't been published — see the README."
+          : "Couldn't load staff data. Please try refreshing.";
+      setError(message);
+      console.error("Failed to load staff:", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function handleApprove(staffId: string) {
+    setReviewingId(staffId);
+    startReview(async () => {
+      await approvePendingStaff(staffId);
+      invalidateTableCache("staff");
+      await load(true);
+      setReviewingId(null);
+    });
+  }
+
+  function handleReject(staffId: string) {
+    setReviewingId(staffId);
+    startReview(async () => {
+      await rejectPendingStaff(staffId);
+      invalidateTableCache("staff");
+      await load(true);
+      setReviewingId(null);
+    });
+  }
+
+  const pending = rows?.filter((r) => r.pendingApproval) ?? [];
+
+  const filtered = rows?.filter(
+    (r) =>
+      !filter ||
+      r.fullName.toLowerCase().includes(filter.toLowerCase()) ||
+      r.staffId.toLowerCase().includes(filter.toLowerCase()) ||
+      r.tier.toLowerCase().includes(filter.toLowerCase())
+  );
+
+  const forest = useMemo(() => buildHierarchyForest(rows ?? []), [rows]);
+
+  function renderTreeRow(node: HierarchyNode<Row>, _depth: number) {
+    const r = node.staff;
+    const stateCoordCount = node.staff.tier === "Regional Coordinator" ? node.children.length : 0;
+    const marketerCount =
+      node.staff.tier === "Regional Coordinator"
+        ? countDescendants(node, (s) => s.tier === "Marketing Officer")
+        : node.staff.tier === "State Coordinator"
+          ? node.children.length
+          : 0;
+
+    return (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="font-medium text-ink">
+            {r.fullName}
+            {r.pendingApproval && (
+              <span className="ml-2 rounded-full bg-goldSoft px-2 py-0.5 text-xs font-medium text-ink">Pending</span>
+            )}
+            {r.staffCodeCorrected && (
+              <span
+                className="ml-2 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800"
+                title={`Corrected on ${r.staffCodeCorrectedAt ? new Date(r.staffCodeCorrectedAt).toLocaleDateString() : "unknown date"}`}
+              >
+                Corrected
+              </span>
+            )}
+          </p>
+          <p className="text-xs text-slate">{r.tier}</p>
+          {r.reportsToName && <p className="text-xs text-slate">Reports to: {r.reportsToName}</p>}
+          <div className="mt-1 font-mono text-xs text-slate">
+            <span>{r.staffId}</span>
+            {r.originalStaffId && (
+              <span className="ml-2 text-yellow-700" title="Original staff code before correction">
+                (was: {r.originalStaffId})
+              </span>
+            )}
+          </div>
+          {(stateCoordCount > 0 || marketerCount > 0) && (
+            <p className="mt-1 text-xs font-medium text-brand">
+              {r.tier === "Regional Coordinator" && `${stateCoordCount} State Coordinator${stateCoordCount === 1 ? "" : "s"} · ${marketerCount} Marketing Officer${marketerCount === 1 ? "" : "s"}`}
+              {r.tier === "State Coordinator" && `${marketerCount} Marketing Officer${marketerCount === 1 ? "" : "s"}`}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs text-slate">{r.link}</span>
+          {r.link.startsWith("http") && <CopyButton value={r.link} label="Copy link" />}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-5xl">
+      <header className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-widest text-gold">Admin</p>
+          <h1 className="mt-1 font-display text-2xl font-semibold text-ink">Staff referral links</h1>
+          <p className="mt-1 text-sm text-slate">
+            Each link is a token — the real staffId is never shown in the URL.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="flex rounded-md border border-line bg-white p-0.5">
+            <button
+              onClick={() => setView("hierarchy")}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                view === "hierarchy" ? "bg-paper text-ink" : "text-slate hover:text-ink"
+              }`}
+            >
+              Hierarchy
+            </button>
+            <button
+              onClick={() => setView("list")}
+              className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                view === "list" ? "bg-paper text-ink" : "text-slate hover:text-ink"
+              }`}
+            >
+              List
+            </button>
+          </div>
+          {view === "list" && (
+            <input
+              className="input max-w-xs"
+              placeholder="Search name, staffId, tier…"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+          )}
+        </div>
+      </header>
+
+      {pending.length > 0 && (
+        <div className="card-rise mb-6 overflow-hidden rounded-card border border-gold/30 bg-goldSoft/40">
+          <div className="border-b border-gold/30 px-4 py-3">
+            <h2 className="font-display text-base font-semibold text-ink">
+              Pending approval ({pending.length})
+            </h2>
+            <p className="text-xs text-slate">
+              Regional Coordinators who signed up directly on the site — approve to activate their account.
+            </p>
+          </div>
+          <div className="divide-y divide-gold/20">
+            {pending.map((r) => (
+              <div key={r.staffId} className="flex flex-wrap items-start justify-between gap-3 px-4 py-3">
+                <div>
+                  <p className="font-medium text-ink">{r.fullName}</p>
+                  <p className="text-xs text-slate">
+                    {r.email} · {r.phone} · {r.state}
+                  </p>
+                  <p className="font-mono text-xs text-slate">{r.staffId}</p>
+                  {r.homeAddress && <p className="mt-1 text-xs text-slate">{r.homeAddress}</p>}
+                  {(r.roleSpecialization || r.stateOfInfluence) && (
+                    <p className="mt-1 text-xs text-slate">
+                      {r.roleSpecialization}
+                      {r.roleSpecialization && r.stateOfInfluence ? " · " : ""}
+                      {r.stateOfInfluence ? `Influence: ${r.stateOfInfluence}` : ""}
+                    </p>
+                  )}
+                  <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs">
+                    {r.ninNumber ? (
+                      <span className="font-mono text-slate">NIN: {r.ninNumber}</span>
+                    ) : (
+                      <span className="text-bad">No NIN provided</span>
+                    )}
+                    <span className={r.mouAccepted ? "text-brand" : "text-bad"}>
+                      MOU {r.mouAccepted ? "acknowledged" : "not acknowledged"}
+                    </span>
+                    <span className={r.declarationAccepted ? "text-brand" : "text-bad"}>
+                      Declaration {r.declarationAccepted ? "accepted" : "not accepted"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleReject(r.staffId)}
+                    disabled={isReviewing && reviewingId === r.staffId}
+                    className="btn-secondary text-sm"
+                  >
+                    Reject
+                  </button>
+                  <button
+                    onClick={() => handleApprove(r.staffId)}
+                    disabled={isReviewing && reviewingId === r.staffId}
+                    className="btn-primary text-sm"
+                  >
+                    {isReviewing && reviewingId === r.staffId ? "Working…" : "Approve"}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {view === "hierarchy" && (
+        <div className="overflow-hidden rounded-card border border-line bg-white">
+          {!rows && !error && (
+            <div className="divide-y divide-line">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="px-4 py-3.5">
+                  <Skeleton className="h-3.5 w-full max-w-[220px]" />
+                </div>
+              ))}
+            </div>
+          )}
+          {error && <p className="px-4 py-8 text-center text-bad">{error}</p>}
+          {rows && !error && forest.length === 0 && (
+            <p className="px-4 py-8 text-center text-slate">
+              No staff yet — staff appear here once they register.
+            </p>
+          )}
+          {rows && !error && forest.length > 0 && (
+            <HierarchyTree nodes={forest} renderRow={renderTreeRow} getKey={(s) => s.staffId} />
+          )}
+        </div>
+      )}
+
+      {view === "list" && (
+      <div className="overflow-hidden rounded-card border border-line bg-white">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
+            <tr>
+              <th className="px-4 py-3">S/N</th>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Tier</th>
+              <th className="px-4 py-3">Staff ID</th>
+              <th className="px-4 py-3">Referral link</th>
+              <th className="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {!rows && !error && (
+              <>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <tr key={i} className="border-t border-line">
+                    {Array.from({ length: 6 }).map((_, j) => (
+                      <td key={j} className="px-4 py-3.5">
+                        <Skeleton className="h-3.5 w-full max-w-[130px]" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </>
+            )}
+            {error && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-bad">
+                  {error}
+                </td>
+              </tr>
+            )}
+            {rows && !error && filtered?.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-8 text-center text-slate">
+                  {rows.length === 0
+                    ? "No staff yet — staff appear here once they register."
+                    : `No staff match "${filter}".`}
+                </td>
+              </tr>
+            )}
+            {filtered?.map((r, i) => (
+              <tr
+                key={r.staffId}
+                className="row-rise border-t border-line transition-colors duration-150 hover:bg-paper"
+                style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
+              >
+                <td className="px-4 py-3 text-slate">{i + 1}</td>
+                <td className="px-4 py-3 font-medium text-ink">{r.fullName}</td>
+                <td className="px-4 py-3 text-slate">
+                  {r.tier}
+                  {r.pendingApproval && (
+                    <span className="ml-2 rounded-full bg-goldSoft px-2 py-0.5 text-xs font-medium text-ink">
+                      Pending
+                    </span>
+                  )}
+                  {r.staffCodeCorrected && (
+                    <span
+                      className="ml-2 rounded-full bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800"
+                      title={`Corrected on ${r.staffCodeCorrectedAt ? new Date(r.staffCodeCorrectedAt).toLocaleDateString() : "unknown date"}`}
+                    >
+                      Corrected
+                    </span>
+                  )}
+                </td>
+                <td className="px-4 py-3">
+                  <div className="font-mono text-xs text-slate">
+                    <div>{r.staffId}</div>
+                    {r.originalStaffId && (
+                      <div className="text-yellow-700 text-xs mt-1" title="Original staff code before correction">
+                        Was: {r.originalStaffId}
+                      </div>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-3 font-mono text-xs text-slate">{r.link}</td>
+                <td className="px-4 py-3 text-right">
+                  {r.link.startsWith("http") && <CopyButton value={r.link} label="Copy link" />}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      )}
+    </div>
+  );
+}
+
+===== END: src/app/admin/staff/page.tsx =====
+
+===== FILE: src/lib/email.ts =====
+import "server-only";
+
+const DEFAULT_FROM = "Globe-Tech SME Grant <grant@globetechimpact.com>";
+
+function firstName(fullName: string): string {
+  return fullName.trim().split(/\s+/)[0] || "there";
+}
+
+/**
+ * Builds the HTML for the "how to open your FirstBank account" email —
+ * mirrors FirstSME_Basic_Account_Guide.docx step for step, with the
+ * applicant's Grant Code (their referrer's staffId) called out prominently
+ * and re-emphasized at Step 6, where it actually gets entered.
+ *
+ * Email-safe HTML only: inline styles, no flexbox/grid, explicit image
+ * dimensions — this needs to render consistently in Gmail/Outlook/Apple Mail.
+ */
+export function buildGrantCodeEmailHtml(opts: {
+  applicantName: string;
+  grantCode: string;
+  appUrl: string;
+  grantCategoryName: string;
+  grantAmount: number;
+  applicationId: string;
+}): string {
+  const { applicantName, grantCode, appUrl, grantCategoryName, grantAmount, applicationId } = opts;
+  const FIRSTBANK_ACCOUNT_URL = "https://openaccounts2.firstbanknigeria.com/corporate/";
+  const name = firstName(applicantName);
+  const img = (n: number) => `${appUrl}/email/step-${n}.png`;
+  const continuationLink = `${appUrl}/apply/account-details/${applicationId}`;
+
+  const steps: { title: string; body: string; image: number; callout?: string }[] = [
+    { title: "Step 1: Start the application", body: "Click the link below, then click the black \u201cCreate Account\u201d button on the welcome page.", image: 1 },
+    { title: "Step 2: Get ready", body: "On the next screen, click \u201cI'm Ready\u201d to continue.", image: 2 },
+    { title: "Step 3: Enter your phone and email", body: "Type in your phone number and email address. Then type the code shown in the picture (CAPTCHA) into the box, and click \u201cProceed\u201d.", image: 3 },
+    { title: "Step 4: Confirm your email", body: "A 6-digit code will be sent to your email. Open your email, copy the code, type it in, and click \u201cProceed\u201d.", image: 4 },
+    { title: "Step 5: Business information", body: "Type your business Registration Number and click \u201cValidate\u201d. Then fill in the Date of Registration and Jurisdiction of Incorporation.", image: 5 },
+    {
+      title: "Step 6: Choose your branch and enter your Grant Code",
+      body: "Select your Preferred Branch from the list. Then look for the box labelled \u201cAdditional Information\u201d.",
+      image: 6,
+      callout: `You MUST type your Grant Code <strong>${grantCode}</strong> exactly as shown into the "Additional Information" box before clicking Continue. If this code is not entered, we will not be able to verify that your account was opened through this program — which may result in <strong>disqualification from the grant</strong>.`,
+    },
+    { title: "Step 7: Enter your BVN and NIN", body: "Type in your 11-digit BVN and your 11-digit NIN. (If you don't know your BVN, dial *565*0# on your phone to receive it by SMS.)", image: 7 },
+    { title: "Step 8: Take a selfie", body: "Follow the on-screen instructions for \u201cFace Capture\u201d. Stand in a brightly lit area and look straight at the camera.", image: 8 },
+    { title: "Step 9: Upload your signature and answer a few questions", body: "Upload a photo of your signature. Answer \u201cAre you a Politically Exposed Person?\u201d (choose No, unless it applies to you). Then tick your Business role \u2014 Director, Share Holder, and/or Signatory.", image: 9 },
+    { title: "Step 10: Add a reference and finish", body: "Enter the Name, Email, and Phone Number of someone who already has an account with FirstBank, to serve as your reference. Complete the remaining business documents, then submit to finish.", image: 10 },
+  ];
+
+  const stepsHtml = steps
+    .map(
+      (s) => `
+      <tr>
+        <td style="padding:28px 32px 0;">
+          <p style="margin:0 0 6px;font-family:Georgia,'Times New Roman',serif;font-size:18px;font-weight:700;color:#0B2A18;">${s.title}</p>
+          <p style="margin:0 0 14px;font-family:Arial,Helvetica,sans-serif;font-size:14.5px;line-height:1.6;color:#4B5B52;">${s.body}</p>
+          ${
+            s.callout
+              ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 14px;background:#FBF3E2;border:1px solid #E9CE8F;border-radius:8px;"><tr><td style="padding:14px 16px;font-family:Arial,Helvetica,sans-serif;font-size:14px;line-height:1.6;color:#0B2A18;">${s.callout}</td></tr></table>`
+              : ""
+          }
+          <img src="${img(s.image)}" width="536" alt="${s.title}" style="display:block;width:100%;max-width:536px;height:auto;border:1px solid #DCE6DE;border-radius:8px;" />
+        </td>
+      </tr>`
+    )
+    .join("");
+
+  return `
+<!DOCTYPE html>
+<html>
+  <body style="margin:0;padding:0;background:#F5F8F5;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#F5F8F5;padding:32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#FFFFFF;border-radius:16px;overflow:hidden;border:1px solid #DCE6DE;">
+            <tr>
+              <td style="background:#0B2A18;padding:28px 32px;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:12px;letter-spacing:1px;text-transform:uppercase;color:#C8952A;">Globe-Tech SME Grant Program</p>
+                <p style="margin:6px 0 0;font-family:Georgia,'Times New Roman',serif;font-size:22px;font-weight:700;color:#FFFFFF;">You're in, ${name}.</p>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 0;">
+                <p style="margin:0 0 16px;font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#0B2A18;">
+                  Your application for the <strong>${grantCategoryName}</strong> (₦${grantAmount.toLocaleString()})
+                  has been received. Recipients are selected by random draw from eligible applicants every
+                  quarter — there's nothing more to do on that front. In the meantime, the next step is opening
+                  your FirstSME Basic account with FirstBank \u2014 it only takes a few minutes on your phone or
+                  computer. Follow the steps below.
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 8px;background:#0E7A3A;border-radius:10px;">
+                  <tr>
+                    <td style="padding:18px 20px;text-align:center;">
+                      <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#D7E4D9;">Your Grant Code</p>
+                      <p style="margin:4px 0 0;font-family:'Courier New',monospace;font-size:26px;font-weight:700;letter-spacing:1px;color:#FFFFFF;">${grantCode}</p>
+                    </td>
+                  </tr>
+                </table>
+                <p style="margin:8px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:13px;line-height:1.5;color:#4B5B52;">
+                  You'll enter this in the <strong>Additional Information</strong> box at Step 6 below \u2014 it's what
+                  links your new account to your grant application.
+                </p>
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr><td align="center">
+                    <a href="${FIRSTBANK_ACCOUNT_URL}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:15px;padding:13px 24px;border-radius:8px;text-decoration:none;">
+                      Open my FirstBank Account \u2192
+                    </a>
+                  </td></tr>
+                </table>
+              </td>
+            </tr>
+            ${stepsHtml}
+            <tr>
+              <td style="padding:28px 32px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#0D2C1A;border:1px solid #1E4A2E;border-radius:10px;">
+                  <tr>
+                    <td style="padding:18px 20px;">
+                      <p style="margin:0 0 8px;font-family:Georgia,'Times New Roman',serif;font-size:16px;font-weight:700;color:#FFFFFF;">One more step</p>
+                      <p style="margin:0 0 12px;font-family:Arial,Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:#D7E4D9;">
+                        Once you've finished opening your FirstBank account above, come back to the link below
+                        to submit your new account details right away \u2014 that's the final step to complete
+                        your application. Bookmark this link or keep this email:
+                      </p>
+                      <a href="${continuationLink}" style="display:inline-block;background:#C8952A;color:#1A1204;font-family:Arial,Helvetica,sans-serif;font-weight:700;font-size:14px;padding:11px 18px;border-radius:8px;text-decoration:none;">
+                        Submit my account details \u2192
+                      </a>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:28px 32px 32px;">
+                <p style="margin:0;font-family:Arial,Helvetica,sans-serif;font-size:14.5px;line-height:1.6;color:#0B2A18;">
+                  That's it \u2014 you're done! If you get stuck at any step, just reply to this email and we'll help you through it.
+                </p>
+                <p style="margin:20px 0 0;font-family:Arial,Helvetica,sans-serif;font-size:12.5px;line-height:1.6;color:#7FA688;">
+                  Globe-Tech SME Grant &amp; Business Support Program
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
+}
+
+export async function sendGrantCodeEmail(opts: {
+  to: string;
+  applicantName: string;
+  grantCode: string;
+  grantCategoryName: string;
+  grantAmount: number;
+  applicationId: string;
+}): Promise<void> {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error("RESEND_API_KEY is not set. Add it in Vercel's environment variables.");
+  }
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  if (!appUrl) {
+    throw new Error("NEXT_PUBLIC_APP_URL is not set — needed to build the image links in the email.");
+  }
+  const from = process.env.GRANT_EMAIL_FROM || DEFAULT_FROM;
+
+  const html = buildGrantCodeEmailHtml({
+    applicantName: opts.applicantName,
+    grantCode: opts.grantCode,
+    appUrl,
+    grantCategoryName: opts.grantCategoryName,
+    grantAmount: opts.grantAmount,
+    applicationId: opts.applicationId,
+  });
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from,
+      to: opts.to,
+      subject: "Your Grant Code — next step: open your FirstBank account",
+      html,
+    }),
+  });
+
+  if (!res.ok) {
+    throw new Error(`Resend API error: ${res.status} ${await res.text()}`);
+  }
+}
+
+===== END: src/lib/email.ts =====
+
+===== FILE: src/lib/types.ts =====
+export type StaffTier = "Regional Coordinator" | "State Coordinator" | "Marketing Officer";
+
+export interface StaffRecord {
+  staffId: string; // e.g. GBT07R/115545925 — doc ID. Read directly from the sheet's "Staff Code" column.
+  fullName: string;
+  tier: StaffTier;
+  email: string;
+  phone: string;
+  state: string;
+  active: boolean;
+  sourceRow: number; // row number back in the onboarding Google Sheet (0 for self-registered staff)
+  reportsToCode?: string; // from the sheet's "Reports To Code" column, if present
+  reportsToName?: string; // from the sheet's "Reports To Name" column, if present
+  authUid?: string; // Firebase Auth UID, set once this staff member self-registers
+  registrationSource?: "sheet" | "self"; // "self" = registered directly on the website, not synced from the sheet
+  pendingApproval?: boolean; // true only for self-registered Regional Coordinators awaiting admin approval
+  registeredAt?: string; // ISO timestamp for new registration model — set for all new referral-based registrations
+  staffCodeCorrected?: boolean; // true if this user's staff code was corrected during migration
+  staffCodeCorrectedAt?: string; // ISO timestamp when the correction was applied
+  originalStaffId?: string; // the original incorrect staff code before correction
+
+  // Onboarding-form fields, collected during self-registration (mirrors the
+  // Globe-Tech onboarding Google Forms — see the chat signup flow).
+  middleName?: string;
+  homeAddress?: string;
+  socialMediaPlatform?: string; // Facebook | Instagram | X | LinkedIn
+  socialMediaUsername?: string;
+  ninNumber?: string; // National Identification Number, collected during self-registration
+  mouAccepted?: boolean; // all 8 MOU statements acknowledged
+  declarationAccepted?: boolean;
+  stateToCoordinate?: string; // State Coordinator only — the state they'll operate in
+  roleSpecialization?: string; // Regional Coordinator only — "Globe-Tech Regional Marketing Lead" | "Data analysis"
+  stateOfInfluence?: string; // Regional Coordinator only
+}
+
+// One row per self-registration awaiting the "set password" step. Short-lived —
+// deleted once used, so a leaked/guessed URL can't be replayed.
+export interface StaffSetupTokenRecord {
+  token: string; // doc ID
+  staffId: string;
+  createdAt: string;
+  expiresAt: string;
+  used: boolean;
+}
+
+export interface LinkTokenRecord {
+  token: string; // doc ID, e.g. "x7k9dQ"
+  staffId: string;
+  createdAt: string; // ISO timestamp
+  isTest?: boolean; // true = visits/applications through this link are excluded from analytics
+}
+
+export type ApplicationStatus =
+  | "phase1_submitted"
+  | "phase2_email_sent"
+  | "phase2_marked_complete";
+
+export type GrantCategoryId = "emerging" | "development" | "expansion" | "growth" | "scaleup" | "impact";
+
+// Full application record — condensed to 10 questions max, tailored to the
+// grant category the applicant selects before the chat begins.
+export interface ApplicationRecord {
+  applicationId: string; // doc ID, auto
+  referredBy: string; // real staffId, or "unassigned"
+  referralToken?: string; // the raw /apply/[token] segment (or gt_ref_token cookie) used at submission time,
+                           // kept even when it fails to resolve — lets an admin re-run resolution later (see
+                           // referralResolutionFailed) instead of the true referrer being unrecoverable
+  referralResolutionFailed?: boolean; // true if referredBy is "unassigned" because the token→staffId lookup
+                                       // errored (e.g. a Firestore outage), NOT because the token genuinely
+                                       // had no referrer — flags the record as needing manual/backfill review
+
+  grantCategory: GrantCategoryId;
+  grantAmount: number; // fixed per category — see src/lib/grantCategories.ts
+
+  // Universal (asked regardless of category)
+  applicantName: string;
+  phone: string;
+  phoneNormalized?: string; // canonical "0XXXXXXXXXX" form of `phone`, for duplicate-detection lookups only — see src/lib/phone.ts
+  email: string;
+  stateOfResidence: string;
+  businessName: string;
+  grantNeedExplanation: string; // why they need it / how it'll help their business
+
+  // Categories 1–3 only (street / marketplace / shop traders)
+  businessType?: string;
+  businessLocation?: string;
+  monthlyProductCost?: number;
+
+  // Categories 4–6 only (registered Business Name or LLC)
+  cacNumber?: string;
+  businessDescription?: string;
+
+  declarationAgreed: boolean;
+
+  status: ApplicationStatus;
+  createdAt: string;
+  phase1SubmittedAt: string;
+  grantCode: string; // the referring staff member's staffId — what the applicant enters
+                      // as "Additional Information" on FirstBank's account-opening form
+  isTest?: boolean; // submitted through a link flagged isTest — excluded from analytics
+
+  // Phase 2 — FirstBank SME account verification. The account-details form
+  // unlocks 48h after phase1SubmittedAt (computed client/server-side from
+  // that timestamp, not stored separately). See src/lib/phase2Verification.ts.
+  bankAccountNumber?: string;
+  bankAccountName?: string;
+  accountDetailsSubmittedAt?: string;
+  phase2VerificationStatus?: Phase2VerificationStatus;
+  phase2VerifiedAt?: string; // set only when status becomes "completed"
+  phase2VerifiedBatchId?: string; // which bank upload batch produced the match
+  phase2AdminNote?: string; // optional admin note, e.g. reason for "invalid_account"
+}
+
+export type Phase2VerificationStatus =
+  | "awaiting_verification" // applicant submitted account details, no bank match yet
+  | "account_type_not_verified" // name matched a bank row but the account itself didn't
+  | "verification_failed" // no match found in the most recent bank upload
+  | "invalid_account" // admin manually confirmed this is not a valid FirstBank SME account
+  | "completed"; // account number + name both matched a bank upload row
+
+export interface BankValidationRow {
+  accountNumber: string;
+  accountName: string;
+  bankReference?: string;
+}
+
+// One doc per bank-data upload. Rows are stored inline (not a subcollection)
+// since a quarterly batch is expected to be at most a few thousand rows —
+// comfortably under Firestore's 1MiB document limit.
+export interface BankValidationBatchRecord {
+  id: string; // doc ID
+  fileName: string;
+  uploadedAt: string;
+  uploadedBy?: string; // admin's Firebase Auth UID
+  rows: BankValidationRow[];
+  // Outcome summary from the matching run performed at upload time.
+  matchedCount: number;
+  partialCount: number; // "account_type_not_verified"
+}
+
+export interface EmailLogRecord {
+  applicationId: string;
+  type: "phase2_instructions";
+  sentAt: string;
+  opened: boolean;
+  clicked: boolean;
+  error?: string; // set when the send failed — the application itself still saved fine
+}
+
+// One row per /apply/[token] page load — powers the referral funnel
+// (link visits vs. actual submissions) on the analytics dashboard.
+export interface VisitRecord {
+  token: string;
+  staffId: string; // resolved staffId, or "unassigned" if the token didn't resolve
+  visitedAt: string; // ISO timestamp
+  isTest?: boolean;
+}
+
+// Single doc (payoutSettings/rate) holding the ₦ commission paid per staff
+// member for each of their referrals that reaches phase2_marked_complete.
+export interface PayoutSettingsRecord {
+  perCompletionAmount: number;
+  updatedAt: string;
+  updatedBy?: string; // admin's Firebase Auth UID
+}
+
+// One row per payment actually made to a staff member — an admin logs these
+// on /admin/payouts as they pay out, so "amount paid" updates over time
+// rather than being a single paid/unpaid flag.
+export interface PayoutRecord {
+  id: string; // doc ID
+  staffId: string;
+  amount: number;
+  note?: string;
+  paidAt: string; // ISO timestamp
+  recordedBy?: string; // admin's Firebase Auth UID
+}
+
+// Single doc (appSettings/referralLinks) controlling whether staff can see
+// their own /apply/[token] referral link on the dashboard. Toggled off while
+// grant applications are paused (e.g. awaiting bank verification training)
+// so staff can still log in but won't start sharing a link prematurely — the
+// underlying token/link itself is untouched, only its visibility.
+export interface ReferralLinkSettingsRecord {
+  linksHidden: boolean;
+  updatedAt: string;
+  updatedBy?: string; // admin's Firebase Auth UID
+}
+
+===== END: src/lib/types.ts =====
+
+===== MISSING: src/lib/firebase.ts =====
+===== MISSING: src/lib/firebaseAdmin.ts =====
+===== FILE: src/lib/referral.ts =====
+import "server-only";
+import { customAlphabet } from "nanoid";
+import { getAdminSupabase } from "@/lib/supabase-admin";
+import { linkTokenToRow } from "@/lib/supabaseMappers";
+import type { ReferralLinkSettingsRecord } from "@/lib/types";
+
+// Unambiguous alphabet — no 0/O, 1/I/l confusion — since staff will read tokens aloud.
+const tokenAlphabet = "23456789ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz";
+export const generateToken = customAlphabet(tokenAlphabet, 8);
+
+/**
+ * Resolves a token to a staffId, or throws if the lookup itself fails (as
+ * opposed to the token simply not resolving to anyone). Callers that need to
+ * tell "no referrer" apart from "couldn't check right now" — e.g. to avoid
+ * silently mislabeling an application "unassigned" when the real cause is a
+ * database outage — should use this instead of resolveStaffIdFromToken below.
+ */
+export async function resolveStaffIdFromTokenStrict(token: string | undefined | null): Promise<string | null> {
+  if (!token) return null;
+  const { data, error } = await getAdminSupabase().from("link_tokens").select("staff_id").eq("token", token).maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.staff_id ?? null;
+}
+
+/**
+ * Resolves a public /apply/[token] URL segment to the real staffId, entirely
+ * server-side. The browser and URL never see the staffId itself.
+ *
+ * Returns null (never throws) if the token is missing, malformed, or doesn't
+ * resolve — callers should fall back to "unassigned" rather than blocking
+ * the applicant, per the build plan's graceful-fallback requirement. Use
+ * resolveStaffIdFromTokenStrict instead if the caller needs to distinguish
+ * a genuine non-match from a failed lookup (e.g. to avoid mislabeling
+ * applications "unassigned" during a database outage).
+ */
+export async function resolveStaffIdFromToken(token: string | undefined | null): Promise<string | null> {
+  try {
+    return await resolveStaffIdFromTokenStrict(token);
+  } catch (err) {
+    console.error("resolveStaffIdFromToken failed:", err);
+    return null;
+  }
+}
+
+/**
+ * Whether this token has been manually flagged isTest — visits and
+ * applications through it still work exactly like any other link, but get
+ * excluded from analytics. Never throws — defaults to false.
+ */
+export async function isTokenFlaggedTest(token: string | undefined | null): Promise<boolean> {
+  if (!token) return false;
+  try {
+    const { data } = await getAdminSupabase().from("link_tokens").select("is_test").eq("token", token).maybeSingle();
+    return Boolean(data?.is_test);
+  } catch (err) {
+    console.error("isTokenFlaggedTest failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Generates a token for a staffId if one doesn't already exist, and returns
+ * it. Tokens are created once and never regenerated for an existing staffId,
+ * so a previously shared link keeps working.
+ */
+export async function getOrCreateTokenForStaff(staffId: string): Promise<string> {
+  const db = getAdminSupabase();
+  const { data: existing } = await db.from("link_tokens").select("token").eq("staff_id", staffId).limit(1).maybeSingle();
+  if (existing) return existing.token;
+
+  // Collision check is cheap at this volume; retry on the rare clash.
+  let token = generateToken();
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const { data: clash } = await db.from("link_tokens").select("token").eq("token", token).maybeSingle();
+    if (!clash) break;
+    token = generateToken();
+  }
+
+  await db.from("link_tokens").insert(
+    linkTokenToRow({ token, staffId, createdAt: new Date().toISOString() })
+  );
+
+  return token;
+}
+
+/**
+ * Whether staff referral links are currently hidden on the dashboard —
+ * toggled from /admin/settings. Defaults to hidden if the settings row has
+ * never been written, so a fresh deploy of this feature doesn't accidentally
+ * expose links before an admin has made a deliberate choice either way.
+ */
+export async function areReferralLinksHidden(): Promise<boolean> {
+  try {
+    const { data, error } = await getAdminSupabase().from("app_settings").select("*").eq("id", "referralLinks").maybeSingle();
+    if (error || !data) return true;
+    return (data as unknown as { links_hidden: boolean }).links_hidden ?? true;
+  } catch (err) {
+    console.error("areReferralLinksHidden failed:", err);
+    return true;
+  }
+}
+
+export type { ReferralLinkSettingsRecord };
+
+===== END: src/lib/referral.ts =====
+
+===== FILE: firestore.rules =====
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Admin allowlist: create one doc per admin at admins/{uid} (any content, e.g. {role: "admin"}).
+    // Do this manually in the Firebase console after creating each staff/admin's Auth account.
+    function isAdmin() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    // staff — synced one-way from the onboarding sheet by a Cloud Function
+    // (which uses the Admin SDK and bypasses these rules entirely).
+    // Only admins may read it from the client; nobody writes it from the client.
+    match /staff/{staffId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // linkTokens — maps opaque tokens to staffIds. The public /apply/[token]
+    // route resolves tokens via the Admin SDK on the server (bypasses these
+    // rules), so this only needs to serve the admin staff page's
+    // copy-link column. Never writable from the client — tokens are only
+    // ever created by the Admin SDK (the onboarding sync / server actions).
+    match /linkTokens/{token} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // applications — written only via the server action (Admin SDK).
+    // Admins can read everything; a staff member can read only their own
+    // referrals (matched by a custom claim `staffId` set when their Auth
+    // account is created, or by an admins-only allowlist if you'd rather
+    // keep the dashboard admin-only for now).
+    match /applications/{applicationId} {
+      // Admin-only. Staff (Regional/State/Marketing) never read this collection
+      // directly — their dashboard goes through getMyDashboardData, a server
+      // action that returns a curated shape excluding bank account details
+      // (bankAccountNumber/bankAccountName/phase2AdminNote), only the coarse
+      // phase2VerificationStatus. Applicants reach their own record only via
+      // the account-details continuation page's server actions, never
+      // client-side Firestore reads.
+      allow read: if isAdmin();
+      // Admins can flip the status field (legacy manual toggle) and the Phase 2
+      // verification fields (manual override, e.g. confirming "invalid_account").
+      // Applicant-submitted fields (name, business info, bank details) are never
+      // client-writable — those only ever change via the server actions.
+      allow update: if isAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ["status", "phase2VerificationStatus", "phase2VerifiedAt", "phase2VerifiedBatchId", "phase2AdminNote"]
+        );
+      allow create: if false; // applications are created server-side only (see actions.ts)
+      allow delete: if false;
+    }
+
+    // emailLogs — written only by the Phase 3 Cloud Function (Admin SDK).
+    match /emailLogs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // visits — one row per /apply/[token] page load, written by the Admin SDK
+    // (recordVisit server action) to power the referral funnel on the
+    // analytics dashboard. Admin-only read, never client-writable.
+    match /visits/{visitId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // staffSetupTokens — short-lived tokens for the self-registration
+    // "set password" step. Only ever read/written by the Admin SDK
+    // (server actions), never directly by a client, admin or otherwise —
+    // the token itself is the credential, so no read rule is needed.
+    match /staffSetupTokens/{token} {
+      allow read: if false;
+      allow write: if false;
+    }
+
+    // bankValidationBatches — FirstBank account-validation uploads, used to
+    // auto-verify Phase 2. Contains real account numbers/names, so this is
+    // strictly admin-only — Regional/State/Marketing staff must never read
+    // this collection, only the coarse phase2VerificationStatus on
+    // individual applications (already covered by the applications rule
+    // above, which only exposes referredBy-scoped fields via server actions,
+    // not this collection directly).
+    match /bankValidationBatches/{batchId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // payoutSettings — the ₦-per-completed-Phase-2 commission rate, editable
+    // by any admin directly from /admin/settings.
+    match /payoutSettings/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // payoutRecords — one row per payment made to a staff member, recorded
+    // by an admin on /admin/payouts. Append-mostly ledger — admins can also
+    // edit/delete a record to fix a mistaken entry.
+    match /payoutRecords/{recordId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // admins allowlist — managed by hand in the console, never via the app.
+    match /admins/{uid} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    // applicationDuplicatesArchive — recoverable backup of duplicate
+    // application records removed by the admin dedup tool (see
+    // src/lib/applicationDedup.ts). Written only server-side via the Admin
+    // SDK; admins can read it to recover a record if a merge was wrong.
+    match /applicationDuplicatesArchive/{applicationId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // appSettings — small collection of admin-editable feature toggles.
+    // Currently: appSettings/referralLinks, controlling whether staff can see
+    // their own referral link on /dashboard (see getMyDashboardData). Read by
+    // the Admin SDK server-side (bypasses these rules) and by the
+    // /admin/settings page client-side, so it needs an explicit admin rule.
+    match /appSettings/{docId} {
+      allow read: if isAdmin();
+      allow write: if isAdmin();
+    }
+  }
+}
+
+===== END: firestore.rules =====
+
+===== FILE: src/app/apply/[token]/actions.ts =====
+"use server";
+
+import { cookies } from "next/headers";
+import { getAdminSupabase } from "@/lib/supabase-admin";
+import { resolveStaffIdFromToken, resolveStaffIdFromTokenStrict, isTokenFlaggedTest } from "@/lib/referral";
+import { applicationRecordToRow, rowToApplicationRecord, visitToRow, emailLogToRow } from "@/lib/supabaseMappers";
+import { sendGrantCodeEmail } from "@/lib/email";
+import { GRANT_CATEGORIES } from "@/lib/grantCategories";
+import { normalizeNigerianPhone } from "@/lib/phone";
+import type { ApplicationRecord, GrantCategoryId } from "@/lib/types";
+
+const REF_COOKIE = "gt_ref_token";
+
+/**
+ * Looks up an existing application by phone number (normalized first, then
+ * a raw-string fallback for records written before phoneNormalized existed).
+ * One retry after a short delay absorbs a transient blip. Throws if both
+ * attempts fail — callers decide how to handle that (see
+ * checkExistingApplication below: deliberately fails OPEN, not closed).
+ */
+async function findApplicationByPhoneOnce(phone: string): Promise<ApplicationRecord | null> {
+  const db = getAdminSupabase();
+  const normalized = normalizeNigerianPhone(phone);
+
+  if (normalized) {
+    const { data, error } = await db.from("applications").select("*").eq("phone_normalized", normalized).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return rowToApplicationRecord(data);
+  }
+
+  const raw = phone.trim();
+  if (raw) {
+    const { data, error } = await db.from("applications").select("*").eq("phone", raw).limit(1).maybeSingle();
+    if (error) throw new Error(error.message);
+    if (data) return rowToApplicationRecord(data);
+  }
+
+  return null;
+}
+
+async function findApplicationByPhone(phone: string): Promise<ApplicationRecord | null> {
+  try {
+    return await findApplicationByPhoneOnce(phone);
+  } catch (err) {
+    console.error("findApplicationByPhone: first attempt failed, retrying once:", err);
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return await findApplicationByPhoneOnce(phone);
+  }
+}
+
+export type CheckExistingApplicationResult = { exists: false } | { exists: true; applicationId: string };
+
+/**
+ * Called right after the applicant enters their phone number (before the
+ * rest of the form), so a returning applicant gets routed to the FirstBank
+ * completion page instead of starting a brand-new application.
+ *
+ * Fails OPEN by design: if the lookup itself can't complete (e.g. a database
+ * outage), this reports "not found" rather than blocking the applicant.
+ * Blocking every applicant because a duplicate-check read failed is worse
+ * than occasionally missing a duplicate — a missed duplicate is fully
+ * recoverable later via the /admin/application-dedup cleanup tool, whereas
+ * turning away a real applicant during an outage is not recoverable at all.
+ */
+export async function checkExistingApplication(phone: string): Promise<CheckExistingApplicationResult> {
+  try {
+    const existing = await findApplicationByPhone(phone);
+    if (!existing) return { exists: false };
+    return { exists: true, applicationId: existing.applicationId };
+  } catch (err) {
+    console.error("checkExistingApplication: lookup failed after retry — failing open, applicant proceeds as new:", err);
+    return { exists: false };
+  }
+}
+
+/**
+ * Preview of the Grant Code shown before final submission, so the applicant
+ * can copy/confirm it ahead of time. Uses the exact same resolution logic
+ * submitApplication uses for the authoritative write — this is display-only,
+ * never trusted as the actual value written to the database.
+ */
+export async function getGrantCodePreview(token: string): Promise<string> {
+  let staffId = await resolveStaffIdFromToken(token);
+  if (!staffId) {
+    const store = await cookies();
+    const cookieToken = store.get(REF_COOKIE)?.value;
+    staffId = await resolveStaffIdFromToken(cookieToken);
+  }
+  return staffId ?? "unassigned";
+}
+
+/**
+ * Called once on page load (client useEffect) to persist the token in a
+ * short-lived cookie — survives a refresh even if the applicant loses the
+ * URL. Also logs a lightweight visit record so the admin analytics
+ * dashboard can show a real "link visited -> application submitted"
+ * conversion rate. Best-effort — a failed write here never blocks the
+ * applicant from continuing.
+ */
+export async function recordVisit(token: string) {
+  const store = await cookies();
+  store.set(REF_COOKIE, token, {
+    httpOnly: true,
+    secure: true,
+    sameSite: "lax",
+    maxAge: 60 * 60 * 24 * 7,
+    path: "/",
+  });
+
+  try {
+    const [staffId, isTest] = await Promise.all([
+      resolveStaffIdFromToken(token).then((id) => id ?? "unassigned"),
+      isTokenFlaggedTest(token),
+    ]);
+    await getAdminSupabase()
+      .from("visits")
+      .insert(visitToRow({ token, staffId, visitedAt: new Date().toISOString(), ...(isTest ? { isTest: true } : {}) }));
+  } catch (err) {
+    console.error("recordVisit: failed to log visit (non-fatal):", err);
+  }
+}
+
+export interface SubmitApplicationInput {
+  token: string;
+
+  grantCategory: GrantCategoryId;
+  grantAmount: number;
+
+  applicantName: string;
+  phone: string;
+  email: string;
+  stateOfResidence: string;
+  businessName: string;
+  grantNeedExplanation: string;
+
+  businessType?: string;
+  businessLocation?: string;
+  monthlyProductCost?: number;
+
+  cacNumber?: string;
+  businessDescription?: string;
+
+  declarationAgreed: boolean;
+
+  honeypot: string;
+}
+
+export interface SubmitApplicationResult {
+  ok: boolean;
+  error?: string;
+  grantCode?: string;
+}
+
+export async function submitApplication(input: SubmitApplicationInput): Promise<SubmitApplicationResult> {
+  if (input.honeypot) {
+    return { ok: true, grantCode: "GT-DEMO" };
+  }
+
+  const category = GRANT_CATEGORIES.find((c) => c.id === input.grantCategory);
+  if (!category) {
+    return { ok: false, error: "Select a grant category to continue." };
+  }
+
+  const requiredStrings: Array<[string, string]> = [
+    ["Full name", input.applicantName],
+    ["Phone number", input.phone],
+    ["Email address", input.email],
+    ["State of residence", input.stateOfResidence],
+    ["Business name", input.businessName],
+    ["Why you need this grant", input.grantNeedExplanation],
+  ];
+
+  if (category.tier === "trader") {
+    requiredStrings.push(["Business type", input.businessType ?? ""], ["Business location", input.businessLocation ?? ""]);
+    if (!input.monthlyProductCost || Number(input.monthlyProductCost) <= 0) {
+      return { ok: false, error: "Enter your approximate monthly product cost." };
+    }
+  } else {
+    requiredStrings.push(
+      ["CAC registration number", input.cacNumber ?? ""],
+      ["Business description", input.businessDescription ?? ""]
+    );
+  }
+
+  for (const [label, value] of requiredStrings) {
+    if (!value || !value.trim()) {
+      return { ok: false, error: `Please complete: ${label}.` };
+    }
+  }
+
+  if (!input.declarationAgreed) {
+    return { ok: false, error: "Please confirm the final declaration to submit." };
+  }
+
+  const emailOk = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(input.email);
+  if (!emailOk) {
+    return { ok: false, error: "Please enter a valid email address." };
+  }
+  const phoneOk = /^[0-9+()\-\s]{7,}$/.test(input.phone);
+  if (!phoneOk) {
+    return { ok: false, error: "Please enter a valid phone number." };
+  }
+
+  // Backend safety net against duplicates — the primary check already
+  // happened at the phone-entry stage before this form was even shown, but
+  // this guards against races and any client that bypasses that stage.
+  // Fails OPEN: if the lookup itself can't complete, let the submission
+  // through rather than blocking a real applicant over an unrelated
+  // read-side outage — any duplicate that slips through here is fully
+  // recoverable later via /admin/application-dedup.
+  let existing: ApplicationRecord | null = null;
+  try {
+    existing = await findApplicationByPhone(input.phone);
+  } catch (err) {
+    console.error("submitApplication: duplicate-phone check failed — failing open, submission proceeds:", err);
+  }
+  if (existing) {
+    return {
+      ok: false,
+      error: "An application already exists for this phone number. Please use the link you were sent to complete it.",
+    };
+  }
+
+  // Resolve fresh from the token — don't trust anything the client claims
+  // about who referred them. Fall back to the cookie if the token itself
+  // is missing. Uses the strict resolver so a failed lookup is
+  // distinguishable from a token that genuinely has no referrer — a failure
+  // still resolves to "unassigned" for this submission (an applicant should
+  // never be blocked over this), but gets flagged via
+  // referralResolutionFailed so the true referrer can be recovered later.
+  let resolvedToken = input.token;
+  let staffId: string | null = null;
+  let resolutionFailed = false;
+  try {
+    staffId = await resolveStaffIdFromTokenStrict(input.token);
+  } catch (err) {
+    console.error("submitApplication: referral resolution failed for URL token:", err);
+    resolutionFailed = true;
+  }
+  if (!staffId) {
+    const store = await cookies();
+    const cookieToken = store.get(REF_COOKIE)?.value;
+    try {
+      staffId = await resolveStaffIdFromTokenStrict(cookieToken);
+      if (staffId) resolutionFailed = false;
+      if (staffId && cookieToken) resolvedToken = cookieToken;
+    } catch (err) {
+      console.error("submitApplication: referral resolution failed for cookie token:", err);
+      resolutionFailed = true;
+    }
+  }
+  const isTest = await isTokenFlaggedTest(resolvedToken).catch(() => false);
+
+  const grantCode = staffId ?? "unassigned";
+  const now = new Date().toISOString();
+  const db = getAdminSupabase();
+  const applicationId = crypto.randomUUID();
+
+  const record: ApplicationRecord = {
+    applicationId,
+    referredBy: staffId ?? "unassigned",
+    ...(resolvedToken ? { referralToken: resolvedToken } : {}),
+    ...(resolutionFailed ? { referralResolutionFailed: true } : {}),
+    ...(isTest ? { isTest: true } : {}),
+
+    grantCategory: input.grantCategory,
+    grantAmount: category.amount,
+
+    applicantName: input.applicantName.trim(),
+    phone: input.phone.trim(),
+    ...(normalizeNigerianPhone(input.phone) ? { phoneNormalized: normalizeNigerianPhone(input.phone)! } : {}),
+    email: input.email.trim().toLowerCase(),
+    stateOfResidence: input.stateOfResidence,
+    businessName: input.businessName.trim(),
+    grantNeedExplanation: input.grantNeedExplanation.trim(),
+
+    ...(category.tier === "trader"
+      ? {
+          businessType: (input.businessType ?? "").trim(),
+          businessLocation: (input.businessLocation ?? "").trim(),
+          monthlyProductCost: Number(input.monthlyProductCost) || 0,
+        }
+      : {
+          cacNumber: (input.cacNumber ?? "").trim(),
+          businessDescription: (input.businessDescription ?? "").trim(),
+        }),
+
+    declarationAgreed: input.declarationAgreed,
+
+    status: "phase1_submitted",
+    createdAt: now,
+    phase1SubmittedAt: now,
+    grantCode,
+  };
+
+  const { error: insertErr } = await db.from("applications").insert(applicationRecordToRow(record));
+  if (insertErr) {
+    console.error("submitApplication: insert failed:", insertErr);
+    return { ok: false, error: "Something went wrong submitting your application. Please try again." };
+  }
+
+  // Send the Grant Code + FirstBank account-opening guide immediately.
+  // A failed send never fails the submission itself — the application is
+  // already saved — it's just logged to email_logs so it's visible to
+  // admins rather than silently disappearing.
+  try {
+    await sendGrantCodeEmail({
+      to: record.email,
+      applicantName: record.applicantName,
+      grantCode,
+      grantCategoryName: category.name,
+      grantAmount: category.amount,
+      applicationId,
+    });
+    await db.from("applications").update({ status: "phase2_email_sent" }).eq("application_id", applicationId);
+    await db.from("email_logs").insert(
+      emailLogToRow({
+        applicationId,
+        type: "phase2_instructions",
+        sentAt: new Date().toISOString(),
+        opened: false,
+        clicked: false,
+      })
+    );
+  } catch (err) {
+    console.error(`Grant Code email failed for application ${applicationId}:`, err);
+    await db.from("email_logs").insert(
+      emailLogToRow({
+        applicationId,
+        type: "phase2_instructions",
+        sentAt: new Date().toISOString(),
+        opened: false,
+        clicked: false,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    );
+  }
+
+  return { ok: true, grantCode };
+}
+
+===== END: src/app/apply/[token]/actions.ts =====
+
+--- Also locating any admin/action/service files I may have missed ---
+===== find: server actions =====
+src/app/admin/application-dedup/actions.ts
+src/app/admin/applications/[id]/actions.ts
+src/app/admin/login/actions.ts
+src/app/admin/staff/actions.ts
+src/app/admin/staff-code-migration/actions.ts
+src/app/admin/verification/actions.ts
+src/app/apply/account-details/actions.ts
+src/app/apply/[token]/actions.ts
+src/app/dashboard/actions.ts
+src/app/signup/actions.ts
+src/app/signup/legacy/actions.ts
+src/app/signup/register/actions.ts
+src/app/signup/set-password/actions.ts
+===== find: anything admin-related =====
+src/app/admin/application-dedup/actions.ts
+src/app/admin/application-dedup/page.tsx
+src/app/admin/applications/page.tsx
+src/app/admin/applications/[id]/actions.ts
+src/app/admin/applications/[id]/page.tsx
+src/app/admin/dashboard/page.tsx
+src/app/admin/login/actions.ts
+src/app/admin/login/page.tsx
+src/app/admin/payouts/page.tsx
+src/app/admin/reset-password/page.tsx
+src/app/admin/settings/page.tsx
+src/app/admin/staff/actions.ts
+src/app/admin/staff/page.tsx
+src/app/admin/staff-code-migration/actions.ts
+src/app/admin/staff-code-migration/page.tsx
+src/app/admin/verification/actions.ts
+src/app/admin/verification/page.tsx
+===== find: lib files =====
+src/lib/applicationDedup.ts
+src/lib/applicationFields.ts
+src/lib/downline.ts
+src/lib/email.ts
+src/lib/firebase-admin.ts
+src/lib/firebase-client.ts
+src/lib/firestoreCache.ts
+src/lib/grantCategories.ts
+src/lib/grantQuestions.ts
+src/lib/initials.ts
+src/lib/maskEmail.ts
+src/lib/nigeriaStates.ts
+src/lib/phase2Status.ts
+src/lib/phase2Verification.ts
+src/lib/phone.ts
+src/lib/referral.ts
+src/lib/selfRegistration.ts
+src/lib/signupQuestions.ts
+src/lib/site.ts
+src/lib/staffAuth.ts
+src/lib/staffCodeMigration.ts
+src/lib/staffCodeNotification.ts
+src/lib/staffHierarchy.ts
+src/lib/staffId.ts
+src/lib/staffRoles.ts
+src/lib/supabase-admin.ts
+src/lib/supabase-client.ts
+src/lib/supabaseCache.ts
+src/lib/supabaseMappers.ts
+src/lib/supabasePaginate.ts
+src/lib/types.ts
+src/lib/validation.ts

@@ -41,3 +41,14 @@ export const PHASE2_STATUS_INFO: Record<Phase2VerificationStatus, { label: strin
     description: "Your FirstBank SME account has been verified. Phase 2 is complete.",
   },
 };
+
+/**
+ * The three "not yet resolved" verification states — shared by the
+ * Verification admin page and the Email Broadcast feature so both always
+ * agree on what counts as "pending."
+ */
+export const PENDING_STATUSES: Phase2VerificationStatus[] = [
+  "awaiting_verification",
+  "account_type_not_verified",
+  "verification_failed",
+];
