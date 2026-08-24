@@ -1,5 +1,6 @@
 import "server-only";
 import { getAdminSupabase } from "@/lib/supabase-admin";
+import { selectAllRows } from "@/lib/supabasePaginate";
 import { rowToStaffRecord } from "@/lib/supabaseMappers";
 import { GRANT_CATEGORIES } from "@/lib/grantCategories";
 import { isPhase2Unlocked } from "@/lib/phase2Status";
@@ -11,10 +12,6 @@ import type { StaffRecord } from "@/lib/types";
  * Coordinators and, transitively, those State Coordinators' Marketing
  * Officers. A depth cap guards against any unexpected cycle in the data —
  * the real hierarchy is only 2 levels deep beneath any node.
- *
- * Postgres's `.in()` has no per-query item cap the way Firestore's did
- * (30 values max), so unlike the old Firestore version this never needs to
- * chunk the frontier array.
  */
 export async function getDownline(staffId: string, maxDepth = 4): Promise<StaffRecord[]> {
   const db = getAdminSupabase();
@@ -24,10 +21,11 @@ export async function getDownline(staffId: string, maxDepth = 4): Promise<StaffR
   let depth = 0;
 
   while (frontier.length > 0 && depth < maxDepth) {
-    const { data, error } = await db.from("staff").select("*").in("reports_to_code", frontier);
-    if (error) throw new Error(error.message);
+    const rows = await selectAllRows<any>((from, to) =>
+      db.from("staff").select("*").in("reports_to_code", frontier).range(from, to)
+    );
     const nextFrontier: string[] = [];
-    for (const row of data ?? []) {
+    for (const row of rows) {
       const staff = rowToStaffRecord(row);
       if (seen.has(staff.staffId)) continue;
       seen.add(staff.staffId);
@@ -57,18 +55,25 @@ export interface ApplicantSummary {
 /**
  * Curated, non-sensitive view of applicants referred by a set of staffIds —
  * used by the personal staff dashboard so Regional/State/Marketing can see
- * verification progress (and now, phone number, for follow-up) without ever
- * touching bank account numbers/names (those never leave this function;
- * only the coarse status and contact phone do).
+ * verification progress (and phone number, for follow-up) without ever
+ * touching bank account numbers/names.
+ *
+ * Paginated via selectAllRows — PostgREST caps unpaginated queries at 1,000
+ * rows by default, which silently truncated this for any staff member with
+ * a large downline (discovered live: a Regional Coordinator's dashboard
+ * showed exactly "1,000 submissions" against a real total of 1,754 — same
+ * failure mode selectAllRows itself was originally built to fix elsewhere,
+ * just missed in this function).
  */
 export async function getApplicantSummariesForStaffIds(staffIds: string[]): Promise<ApplicantSummary[]> {
   if (staffIds.length === 0) return [];
   const db = getAdminSupabase();
 
-  const { data, error } = await db.from("applications").select("*").in("referred_by", staffIds);
-  if (error) throw new Error(error.message);
+  const rows = await selectAllRows<any>((from, to) =>
+    db.from("applications").select("*").in("referred_by", staffIds).range(from, to)
+  );
 
-  return (data ?? []).map((row) => {
+  return rows.map((row) => {
     const category = GRANT_CATEGORIES.find((c) => c.id === row.grant_category);
     return {
       applicationId: row.application_id,
@@ -95,7 +100,10 @@ export interface StaffStats {
 
 /**
  * Computes referral links and application stats for a set of staffIds in
- * one pass.
+ * one pass. Same pagination fix as above — applications query paginated
+ * via selectAllRows for the same reason; link_tokens paginated too for
+ * consistency, though far less likely to ever exceed 1,000 rows in
+ * practice (one token per staff member).
  */
 export async function getStatsForStaffIds(staffIds: string[]): Promise<Map<string, StaffStats>> {
   const db = getAdminSupabase();
@@ -106,21 +114,23 @@ export async function getStatsForStaffIds(staffIds: string[]): Promise<Map<strin
   }
   if (staffIds.length === 0) return stats;
 
-  const [{ data: apps, error: appsErr }, { data: tokens, error: tokensErr }] = await Promise.all([
-    db.from("applications").select("referred_by, status").in("referred_by", staffIds),
-    db.from("link_tokens").select("staff_id, token").in("staff_id", staffIds),
+  const [apps, tokens] = await Promise.all([
+    selectAllRows<any>((from, to) =>
+      db.from("applications").select("referred_by, status").in("referred_by", staffIds).range(from, to)
+    ),
+    selectAllRows<any>((from, to) =>
+      db.from("link_tokens").select("staff_id, token").in("staff_id", staffIds).range(from, to)
+    ),
   ]);
-  if (appsErr) throw new Error(appsErr.message);
-  if (tokensErr) throw new Error(tokensErr.message);
 
-  for (const row of apps ?? []) {
+  for (const row of apps) {
     const entry = stats.get(row.referred_by);
     if (!entry) continue;
     entry.submissions++;
     if (row.status === "phase2_marked_complete") entry.completed++;
   }
 
-  for (const row of tokens ?? []) {
+  for (const row of tokens) {
     const entry = stats.get(row.staff_id);
     if (!entry) continue;
     entry.link = `${appUrl}/apply/${row.token}`;
