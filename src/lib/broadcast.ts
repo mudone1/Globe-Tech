@@ -9,6 +9,7 @@ interface RecipientGroupQuery {
   source: "applications" | "staff";
   phase2Status?: Phase2VerificationStatus;
   phase2Statuses?: Phase2VerificationStatus[];
+  phase2StatusIsNull?: boolean;
   staffTier?: StaffTier;
 }
 
@@ -19,6 +20,7 @@ const RECIPIENT_GROUP_QUERIES: Record<RecipientGroupId, RecipientGroupQuery> = {
   account_type_not_verified: { source: "applications", phase2Status: "account_type_not_verified" },
   verification_failed: { source: "applications", phase2Status: "verification_failed" },
   invalid_account: { source: "applications", phase2Status: "invalid_account" },
+  account_not_opened: { source: "applications", phase2StatusIsNull: true },
   all_staff: { source: "staff" },
   staff_regional_coordinator: { source: "staff", staffTier: "Regional Coordinator" },
   staff_state_coordinator: { source: "staff", staffTier: "State Coordinator" },
@@ -53,6 +55,7 @@ export async function resolveRecipients(groupId: RecipientGroupId): Promise<{ em
       let q = db.from("applications").select("email").range(from, to);
       if (group.phase2Statuses) q = q.in("phase2_verification_status", group.phase2Statuses);
       else if (group.phase2Status) q = q.eq("phase2_verification_status", group.phase2Status);
+      else if (group.phase2StatusIsNull) q = q.is("phase2_verification_status", null);
       return q;
     });
     return dedupeEmails(rows.map((r) => r.email));

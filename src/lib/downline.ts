@@ -47,6 +47,7 @@ export interface ApplicantSummary {
   businessName: string;
   grantCategoryName: string;
   referredBy: string;
+  phone: string;
   status: string;
   phase2VerificationStatus?: string;
   phase2Unlocked: boolean;
@@ -56,8 +57,9 @@ export interface ApplicantSummary {
 /**
  * Curated, non-sensitive view of applicants referred by a set of staffIds —
  * used by the personal staff dashboard so Regional/State/Marketing can see
- * verification progress without ever touching bank account numbers/names
- * (those never leave this function; only the coarse status does).
+ * verification progress (and now, phone number, for follow-up) without ever
+ * touching bank account numbers/names (those never leave this function;
+ * only the coarse status and contact phone do).
  */
 export async function getApplicantSummariesForStaffIds(staffIds: string[]): Promise<ApplicantSummary[]> {
   if (staffIds.length === 0) return [];
@@ -74,6 +76,7 @@ export async function getApplicantSummariesForStaffIds(staffIds: string[]): Prom
       businessName: row.business_name,
       grantCategoryName: category?.name ?? row.grant_category,
       referredBy: row.referred_by,
+      phone: row.phone ?? "",
       status: row.status,
       phase2VerificationStatus: row.phase2_verification_status ?? undefined,
       phase2Unlocked: isPhase2Unlocked(row.phase1_submitted_at),

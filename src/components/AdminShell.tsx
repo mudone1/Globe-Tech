@@ -3,7 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { LayoutDashboard, FileText, Users, Wallet, Settings, ShieldCheck, LogOut } from "lucide-react";
+import { LayoutDashboard, FileText, Users, Wallet, Settings, ShieldCheck, LogOut, PhoneCall } from "lucide-react";
 import { getSupabaseClient } from "@/lib/supabase-client";
 
 const LINKS = [
@@ -12,6 +12,7 @@ const LINKS = [
   { href: "/admin/verification", label: "Verification", icon: ShieldCheck },
   { href: "/admin/staff", label: "Staff", icon: Users },
   { href: "/admin/payouts", label: "Payouts", icon: Wallet },
+  { href: "/crm", label: "CRM", icon: PhoneCall },
   { href: "/admin/settings", label: "Settings", icon: Settings },
 ];
 

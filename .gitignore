@@ -31,3 +31,8 @@ ui-debug.log
 
 .vercel
 .env*
+repo-dump*.txt
+apply-page-dump.txt
+schema-dump.txt
+login-actions-dump.txt
+staffauth-dump.txt

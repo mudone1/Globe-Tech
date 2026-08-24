@@ -6,6 +6,7 @@ import { rowToPayoutSettings, payoutSettingsToRow, rowToReferralLinkSettings, re
 import AdminGate from "@/components/AdminGate";
 import AdminShell from "@/components/AdminShell";
 import EmailBroadcast from "@/components/EmailBroadcast";
+import CrmAccessSettings from "@/components/CrmAccessSettings";
 
 export default function SettingsPage() {
   return (
@@ -22,6 +23,9 @@ export default function SettingsPage() {
           </div>
           <div className="mt-6">
             <EmailBroadcast />
+          </div>
+          <div className="mt-6">
+            <CrmAccessSettings />
           </div>
         </div>
       </AdminShell>

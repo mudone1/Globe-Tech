@@ -186,3 +186,20 @@ export interface ReferralLinkSettingsRecord {
   updatedAt: string;
   updatedBy?: string; // admin's Firebase Auth UID
 }
+
+export type OutreachStatus = "called" | "not_called";
+export type Reachability = "reachable" | "not_reachable";
+
+// One row per application, tracking CRM follow-up state. Created lazily on
+// first edit — an application with no outreach row yet is treated as
+// "not_called" by the CRM UI. See supabase/migrations/0003_crm.sql.
+export interface OutreachRecord {
+  applicationId: string;
+  outreachStatus: OutreachStatus;
+  reachability?: Reachability;
+  callCount: number;
+  lastContactedAt?: string;
+  notes?: string;
+  updatedAt: string;
+  updatedBy?: string;
+}

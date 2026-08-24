@@ -67,3 +67,46 @@ export function sumSubtree<T>(node: HierarchyNode<T>, pick: (staff: T) => number
   for (const child of node.children) total += sumSubtree(child, pick);
   return total;
 }
+
+/**
+ * In-memory equivalent of src/lib/downline.ts's getDownline() — walks the
+ * same reportsToCode edges, breadth-first, but over an already-loaded staff
+ * array instead of paginated Supabase queries. Used by admin pages that
+ * already have the full staff list loaded (e.g. the staff profile page),
+ * so viewing someone's downline doesn't require a second round-trip. Must
+ * stay logically equivalent to getDownline — same edges, same order.
+ */
+export function getDownlineFromList<T extends { staffId: string; reportsToCode?: string }>(
+  staffId: string,
+  allStaff: T[],
+  maxDepth = 4
+): T[] {
+  const byReportsTo = new Map<string, T[]>();
+  for (const s of allStaff) {
+    if (!s.reportsToCode) continue;
+    const list = byReportsTo.get(s.reportsToCode) ?? [];
+    list.push(s);
+    byReportsTo.set(s.reportsToCode, list);
+  }
+
+  const result: T[] = [];
+  const seen = new Set<string>([staffId]);
+  let frontier = [staffId];
+  let depth = 0;
+
+  while (frontier.length > 0 && depth < maxDepth) {
+    const nextFrontier: string[] = [];
+    for (const parentId of frontier) {
+      for (const child of byReportsTo.get(parentId) ?? []) {
+        if (seen.has(child.staffId)) continue;
+        seen.add(child.staffId);
+        result.push(child);
+        nextFrontier.push(child.staffId);
+      }
+    }
+    frontier = nextFrontier;
+    depth++;
+  }
+
+  return result;
+}

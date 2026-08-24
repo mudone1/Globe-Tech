@@ -35,6 +35,9 @@ export interface DashboardApplicant {
   businessName: string;
   grantCategoryName: string;
   statusLabel: string;
+  phone: string;
+  referredBy: string;
+  referredByName: string;
 }
 
 export interface DashboardTeamStats {
@@ -145,6 +148,9 @@ export async function getMyDashboardData(idToken: string): Promise<DashboardData
     areReferralLinksHidden(),
   ]);
 
+  const nameByStaffId = new Map<string, string>([[session.staffId, session.staff.fullName]]);
+  for (const s of downlineStaff) nameByStaffId.set(s.staffId, s.fullName);
+
   return {
     ok: true,
     self: toMember(session.staff, stats.get(session.staffId), linksHidden),
@@ -161,6 +167,9 @@ export async function getMyDashboardData(idToken: string): Promise<DashboardData
         businessName: a.businessName,
         grantCategoryName: a.grantCategoryName,
         statusLabel: statusLabelFor(a),
+        phone: a.phone,
+        referredBy: a.referredBy,
+        referredByName: nameByStaffId.get(a.referredBy) ?? a.referredBy,
       }))
       .sort((a, b) => a.applicantName.localeCompare(b.applicantName)),
     teamStats: buildTeamStats(applicantSummaries),

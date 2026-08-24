@@ -235,3 +235,33 @@ export function rowToReferralLinkSettings(r: Row): ReferralLinkSettingsRecord {
 export function referralLinkSettingsToRow(id: string, s: ReferralLinkSettingsRecord): Row {
   return { id, links_hidden: s.linksHidden, updated_at: s.updatedAt, updated_by: s.updatedBy ?? null };
 }
+
+import type { OutreachRecord } from "@/lib/types";
+
+export function rowToOutreachRecord(row: any): OutreachRecord {
+  return {
+    applicationId: row.application_id,
+    outreachStatus: row.outreach_status,
+    reachability: row.reachability ?? undefined,
+    callCount: row.call_count,
+    lastContactedAt: row.last_contacted_at ?? undefined,
+    notes: row.notes ?? undefined,
+    updatedAt: row.updated_at,
+    updatedBy: row.updated_by ?? undefined,
+  };
+}
+
+export function outreachPatchToRow(
+  applicationId: string,
+  patch: Partial<Omit<OutreachRecord, "applicationId">>
+): Record<string, unknown> {
+  const row: Record<string, unknown> = { application_id: applicationId };
+  if (patch.outreachStatus !== undefined) row.outreach_status = patch.outreachStatus;
+  if (patch.reachability !== undefined) row.reachability = patch.reachability;
+  if (patch.callCount !== undefined) row.call_count = patch.callCount;
+  if (patch.lastContactedAt !== undefined) row.last_contacted_at = patch.lastContactedAt;
+  if (patch.notes !== undefined) row.notes = patch.notes;
+  if (patch.updatedAt !== undefined) row.updated_at = patch.updatedAt;
+  if (patch.updatedBy !== undefined) row.updated_by = patch.updatedBy;
+  return row;
+}

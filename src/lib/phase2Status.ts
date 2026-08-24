@@ -52,3 +52,26 @@ export const PENDING_STATUSES: Phase2VerificationStatus[] = [
   "account_type_not_verified",
   "verification_failed",
 ];
+
+export interface ApplicationStatusLike {
+  status: string;
+  phase2VerificationStatus?: Phase2VerificationStatus;
+}
+
+const BASE_STATUS_LABELS: Record<string, string> = {
+  phase1_submitted: "Phase 1 submitted",
+  phase2_email_sent: "Phase 2 email sent",
+  phase2_marked_complete: "Phase 2 complete",
+};
+
+/**
+ * Human-readable status label for an application — prefers the granular
+ * FirstBank verification status when present, falling back to the coarse
+ * application status. New shared helper for the staff KPI/profile page;
+ * existing inline copies of this same logic in admin/applications/page.tsx
+ * and dashboard/actions.ts are left untouched.
+ */
+export function applicationStatusLabel(app: ApplicationStatusLike): string {
+  if (app.phase2VerificationStatus) return PHASE2_STATUS_INFO[app.phase2VerificationStatus].label;
+  return BASE_STATUS_LABELS[app.status] ?? app.status;
+}

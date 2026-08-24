@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState, useTransition, type CSSProperties } from "react";
+import Link from "next/link";
 import { getTableCached, invalidateTableCache } from "@/lib/supabaseCache";
 import { rowToStaffRecord, rowToLinkToken } from "@/lib/supabaseMappers";
 import AdminGate from "@/components/AdminGate";
@@ -116,7 +117,9 @@ function StaffTable() {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="font-medium text-ink">
-            {r.fullName}
+            <Link href={`/admin/staff/${encodeURIComponent(r.staffId)}`} className="hover:text-brand hover:underline">
+              {r.fullName}
+            </Link>
             {r.pendingApproval && (
               <span className="ml-2 rounded-full bg-goldSoft px-2 py-0.5 text-xs font-medium text-ink">Pending</span>
             )}
@@ -330,7 +333,11 @@ function StaffTable() {
                 style={{ "--delay": `${Math.min(i, 14) * 35}ms` } as CSSProperties}
               >
                 <td className="px-4 py-3 text-slate">{i + 1}</td>
-                <td className="px-4 py-3 font-medium text-ink">{r.fullName}</td>
+                <td className="px-4 py-3 font-medium text-ink">
+                  <Link href={`/admin/staff/${encodeURIComponent(r.staffId)}`} className="hover:text-brand hover:underline">
+                    {r.fullName}
+                  </Link>
+                </td>
                 <td className="px-4 py-3 text-slate">
                   {r.tier}
                   {r.pendingApproval && (

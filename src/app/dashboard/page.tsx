@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import Link from "next/link";
 import { getSupabaseClient } from "@/lib/supabase-client";
 import { useRouter } from "next/navigation";
-import { FileText, CheckCircle2, TrendingUp } from "lucide-react";
+import { FileText, CheckCircle2, TrendingUp, PhoneCall } from "lucide-react";
 import StaffGate from "@/components/StaffGate";
 import BrandMark from "@/components/BrandMark";
 import CopyButton from "@/components/CopyButton";
@@ -27,6 +28,7 @@ export default function DashboardPage() {
 function PersonalDashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [hasCrmAccess, setHasCrmAccess] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -46,6 +48,19 @@ function PersonalDashboard() {
       } catch (err) {
         console.error("Failed to load dashboard:", err);
         setError("Couldn't load your dashboard. Please try refreshing.");
+      }
+
+      // CRM access check — same admin-or-crm_access logic as CrmGate, so the
+      // link only appears for staff who'd actually be let in.
+      try {
+        const uid = session.user.id;
+        const [{ data: adminRow }, { data: crmRow }] = await Promise.all([
+          supabase.from("admins").select("user_id").eq("user_id", uid).maybeSingle(),
+          supabase.from("crm_access").select("user_id").eq("user_id", uid).maybeSingle(),
+        ]);
+        setHasCrmAccess(Boolean(adminRow || crmRow));
+      } catch (err) {
+        console.error("Failed to check CRM access:", err);
       }
     }
     load();
@@ -129,9 +144,17 @@ function PersonalDashboard() {
             </p>
           )}
         </div>
-        <button onClick={handleSignOut} className="btn-secondary text-sm">
-          Sign out
-        </button>
+        <div className="flex items-center gap-2">
+          {hasCrmAccess && (
+            <Link href="/crm" className="btn-secondary flex items-center gap-1.5 text-sm">
+              <PhoneCall size={15} strokeWidth={2} />
+              CRM
+            </Link>
+          )}
+          <button onClick={handleSignOut} className="btn-secondary text-sm">
+            Sign out
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -289,17 +312,19 @@ function PersonalDashboard() {
               <div className="border-b border-line px-6 py-4">
                 <h2 className="font-display text-base font-semibold text-ink">Your applicants</h2>
                 <p className="mt-1 text-sm text-slate">
-                  Everyone who applied through your link (or your team's). Account details stay
-                  private — you only see verification progress.
+                  Everyone who applied through your link (or your team's) — with their phone number, so
+                  follow-up is one tap away. Account details stay private; you only see verification progress.
                 </p>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[640px] text-left text-sm">
+                <table className="w-full min-w-[720px] text-left text-sm">
                   <thead className="bg-paper text-xs uppercase tracking-wide text-slate">
                     <tr>
                       <th className="px-6 py-3">Applicant</th>
+                      <th className="px-6 py-3">Phone</th>
                       <th className="px-6 py-3">Business</th>
                       <th className="px-6 py-3">Grant category</th>
+                      {data.downline.length > 0 && <th className="px-6 py-3">Referred by</th>}
                       <th className="px-6 py-3">Status</th>
                     </tr>
                   </thead>
@@ -311,8 +336,20 @@ function PersonalDashboard() {
                         style={{ "--delay": `${Math.min(i, 12) * 40}ms` } as CSSProperties}
                       >
                         <td className="px-6 py-3 font-medium text-ink">{a.applicantName}</td>
+                        <td className="px-6 py-3">
+                          {a.phone ? (
+                            <a href={`tel:${a.phone}`} className="font-mono text-xs text-brand hover:underline">
+                              {a.phone}
+                            </a>
+                          ) : (
+                            <span className="text-slate">—</span>
+                          )}
+                        </td>
                         <td className="px-6 py-3 text-slate">{a.businessName}</td>
                         <td className="px-6 py-3 text-slate">{a.grantCategoryName}</td>
+                        {data.downline.length > 0 && (
+                          <td className="px-6 py-3 text-slate">{a.referredByName}</td>
+                        )}
                         <td className="px-6 py-3">
                           <span
                             className={`rounded-full px-2.5 py-1 text-xs font-medium ${

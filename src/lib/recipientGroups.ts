@@ -5,6 +5,7 @@ export type RecipientGroupId =
   | "account_type_not_verified"
   | "verification_failed"
   | "invalid_account"
+  | "account_not_opened"
   | "all_staff"
   | "staff_regional_coordinator"
   | "staff_state_coordinator"
@@ -17,6 +18,7 @@ export const RECIPIENT_GROUP_LABELS: Record<RecipientGroupId, string> = {
   account_type_not_verified: "Account Type Not Yet Verified",
   verification_failed: "Verification Failed",
   invalid_account: "Invalid Account",
+  account_not_opened: "Application Submitted — Account Not Yet Opened",
   all_staff: "All Staff",
   staff_regional_coordinator: "Staff — Regional Coordinator",
   staff_state_coordinator: "Staff — State Coordinator",
